@@ -378,6 +378,10 @@ public class CommentDialog extends JDialog {
         String author = safeAuthor(comment.getAuthorName());
         int avatarSize = visualDepth == 0 ? 38 : 32;
         AvatarView avatar = new AvatarView(author, avatarSize);
+        configureCommentAvatar(
+                avatar,
+                comment.getAuthorAvatarUrl()
+        );
 
         JPanel commentBody = new JPanel();
         commentBody.setOpaque(false);
@@ -459,6 +463,31 @@ public class CommentDialog extends JDialog {
                 new Dimension(Integer.MAX_VALUE, preferredHeight)
         );
         return wrapper;
+    }
+
+    private void configureCommentAvatar(
+            AvatarView avatar,
+            String avatarUrl
+    ) {
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            avatar.setAvatarResource(
+                    "/images/default-avatar.png"
+            );
+            return;
+        }
+
+        String normalizedUrl = avatarUrl.trim();
+
+        if (normalizedUrl.startsWith("http://")
+                || normalizedUrl.startsWith("https://")) {
+            avatar.setAvatarUrl(normalizedUrl);
+        } else if (normalizedUrl.startsWith("/")) {
+            avatar.setAvatarResource(normalizedUrl);
+        } else {
+            avatar.setAvatarResource(
+                    "/images/" + normalizedUrl
+            );
+        }
     }
 
     private JButton createLinkButton(String text) {
