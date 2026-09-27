@@ -1,23 +1,32 @@
 package com.studyconnect.client.controller;
 
+import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.client.service.CommentService;
 import com.studyconnect.client.service.PostService;
+import com.studyconnect.client.view.component.CommentDialog;
 import com.studyconnect.client.view.main.MainFrame;
 import com.studyconnect.common.dto.CommentDTO;
+import com.studyconnect.common.dto.CommentCreatedEventDTO;
 import com.studyconnect.common.dto.CreateCommentDTO;
 import com.studyconnect.common.dto.CreatePostDTO;
 import com.studyconnect.common.dto.PostDTO;
 import com.studyconnect.common.protocol.Response;
+import com.studyconnect.common.protocol.ServerEvent;
+import com.studyconnect.common.protocol.ServerEventType;
+import com.studyconnect.common.util.JsonUtils;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -25,12 +34,19 @@ public class MainController {
     private final MainFrame mainFrame;
     private final PostService postService;
     private final CommentService commentService;
+    private final TCPClient tcpClient;
     private final Object serviceLock = new Object();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final Consumer<ServerEvent<String>> commentCreatedListener =
+            this::handleCommentCreatedEvent;
+    private volatile CommentDialog activeCommentDialog;
+    private volatile long activeCommentPostId = -1L;
 
     public MainController(
             MainFrame mainFrame,
             PostService postService,
-            CommentService commentService
+            CommentService commentService,
+            TCPClient tcpClient
     ) {
         this.mainFrame = Objects.requireNonNull(
                 mainFrame,
@@ -44,6 +60,95 @@ public class MainController {
                 commentService,
                 "commentService"
         );
+        this.tcpClient = Objects.requireNonNull(tcpClient, "tcpClient");
+
+        tcpClient.addServerEventListener(
+                ServerEventType.COMMENT_CREATED,
+                commentCreatedListener
+        );
+        mainFrame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                close();
+            }
+
+            @Override
+            public void windowClosed(WindowEvent event) {
+                close();
+            }
+        });
+    }
+
+    public void setActiveCommentDialog(long postId, CommentDialog dialog) {
+        if (postId <= 0 || dialog == null) {
+            return;
+        }
+        activeCommentPostId = postId;
+        activeCommentDialog = dialog;
+    }
+
+    public void clearActiveCommentDialog(CommentDialog dialog) {
+        if (dialog != null && activeCommentDialog == dialog) {
+            activeCommentDialog = null;
+            activeCommentPostId = -1L;
+        }
+    }
+
+    public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        tcpClient.removeServerEventListener(
+                ServerEventType.COMMENT_CREATED,
+                commentCreatedListener
+        );
+        activeCommentDialog = null;
+        activeCommentPostId = -1L;
+    }
+
+    private void handleCommentCreatedEvent(ServerEvent<String> event) {
+        if (closed.get() || event == null || event.getData() == null) {
+            return;
+        }
+
+        final CommentCreatedEventDTO eventData;
+        try {
+            eventData = JsonUtils.fromJson(
+                    event.getData(),
+                    CommentCreatedEventDTO.class
+            );
+        } catch (RuntimeException exception) {
+            System.err.println(
+                    "Không thể đọc sự kiện bình luận: "
+                            + exception.getMessage()
+            );
+            return;
+        }
+
+        if (eventData == null || eventData.getPostId() <= 0) {
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> applyCommentCreatedEvent(eventData));
+    }
+
+    private void applyCommentCreatedEvent(CommentCreatedEventDTO eventData) {
+        if (closed.get() || !mainFrame.isDisplayable()) {
+            return;
+        }
+
+        mainFrame.updatePostCommentCount(
+                eventData.getPostId(),
+                Math.max(0, eventData.getCommentCount())
+        );
+
+        CommentDialog dialog = activeCommentDialog;
+        if (dialog != null
+                && dialog.isDisplayable()
+                && activeCommentPostId == eventData.getPostId()
+                && eventData.getComment() != null) {
+            dialog.addOrUpdateComment(eventData.getComment());
+        }
     }
 
     public void loadAllPosts(
@@ -82,7 +187,6 @@ public class MainController {
     public void createPost(
             CreatePostDTO createPostDTO,
             Consumer<PostDTO> onSuccess
-
     ) {
         if (createPostDTO == null) {
             showError("Thông tin bài viết không được null.");
@@ -119,15 +223,25 @@ public class MainController {
             long postId,
             Consumer<List<CommentDTO>> onSuccess
     ) {
-        if (!validatePostId(postId)
-                || !validateCallback(onSuccess)) {
+        loadComments(postId, onSuccess, this::showError);
+    }
+
+    public void loadComments(
+            long postId,
+            Consumer<List<CommentDTO>> onSuccess,
+            Consumer<String> onError
+    ) {
+        Consumer<String> errorHandler = safeErrorHandler(onError);
+        if (!validatePostId(postId, errorHandler)
+                || !validateCallback(onSuccess, errorHandler)) {
             return;
         }
 
         executeListRequest(
                 () -> commentService.getComments(postId),
                 onSuccess,
-                "tải bình luận"
+                "tải bình luận",
+                errorHandler
         );
     }
 
@@ -135,15 +249,25 @@ public class MainController {
             CreateCommentDTO createCommentDTO,
             Consumer<CommentDTO> onSuccess
     ) {
-        if (!validateCreateComment(createCommentDTO)
-                || !validateCallback(onSuccess)) {
+        createComment(createCommentDTO, onSuccess, this::showError);
+    }
+
+    public void createComment(
+            CreateCommentDTO createCommentDTO,
+            Consumer<CommentDTO> onSuccess,
+            Consumer<String> onError
+    ) {
+        Consumer<String> errorHandler = safeErrorHandler(onError);
+        if (!validateCreateComment(createCommentDTO, errorHandler)
+                || !validateCallback(onSuccess, errorHandler)) {
             return;
         }
 
         executeEntityRequest(
                 () -> commentService.createComment(createCommentDTO),
                 onSuccess,
-                "tạo bình luận"
+                "tạo bình luận",
+                errorHandler
         );
     }
 
@@ -152,13 +276,28 @@ public class MainController {
             Consumer<List<T>> onSuccess,
             String actionDescription
     ) {
+        executeListRequest(
+                request,
+                onSuccess,
+                actionDescription,
+                this::showError
+        );
+    }
+
+    private <T> void executeListRequest(
+            Callable<Response<List<T>>> request,
+            Consumer<List<T>> onSuccess,
+            String actionDescription,
+            Consumer<String> onError
+    ) {
         executeRequest(
                 request,
                 data -> data == null
                         ? Collections.emptyList()
                         : new ArrayList<>(data),
                 onSuccess,
-                actionDescription
+                actionDescription,
+                onError
         );
     }
 
@@ -167,11 +306,26 @@ public class MainController {
             Consumer<T> onSuccess,
             String actionDescription
     ) {
+        executeEntityRequest(
+                request,
+                onSuccess,
+                actionDescription,
+                this::showError
+        );
+    }
+
+    private <T> void executeEntityRequest(
+            Callable<Response<T>> request,
+            Consumer<T> onSuccess,
+            String actionDescription,
+            Consumer<String> onError
+    ) {
         executeRequest(
                 request,
                 Function.identity(),
                 onSuccess,
-                actionDescription
+                actionDescription,
+                onError
         );
     }
 
@@ -179,7 +333,8 @@ public class MainController {
             Callable<Response<T>> request,
             Function<T, T> dataNormalizer,
             Consumer<T> onSuccess,
-            String actionDescription
+            String actionDescription,
+            Consumer<String> onError
     ) {
         SwingWorker<Response<T>, Void> worker =
                 new SwingWorker<>() {
@@ -197,7 +352,8 @@ public class MainController {
                                 this,
                                 dataNormalizer,
                                 onSuccess,
-                                actionDescription
+                                actionDescription,
+                                onError
                         );
                     }
                 };
@@ -209,13 +365,14 @@ public class MainController {
             SwingWorker<Response<T>, Void> worker,
             Function<T, T> dataNormalizer,
             Consumer<T> onSuccess,
-            String actionDescription
+            String actionDescription,
+            Consumer<String> onError
     ) {
         try {
             Response<T> response = worker.get();
 
             if (response == null) {
-                showError(
+                onError.accept(
                         "Server không trả về phản hồi khi "
                                 + actionDescription
                                 + "."
@@ -224,13 +381,15 @@ public class MainController {
             }
 
             if (!response.isSuccess()) {
-                showError(responseMessage(response, actionDescription));
+                onError.accept(
+                        responseMessage(response, actionDescription)
+                );
                 return;
             }
 
             T data = dataNormalizer.apply(response.getData());
             if (data == null) {
-                showError(
+                onError.accept(
                         "Server không trả về dữ liệu khi "
                                 + actionDescription
                                 + "."
@@ -241,40 +400,60 @@ public class MainController {
             onSuccess.accept(data);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            showError(
+            onError.accept(
                     "Yêu cầu đã bị gián đoạn khi "
                             + actionDescription
                             + "."
             );
         } catch (ExecutionException exception) {
-            showRequestException(exception, actionDescription);
+            onError.accept(
+                    requestExceptionMessage(
+                            exception,
+                            actionDescription
+                    )
+            );
         } catch (RuntimeException exception) {
-            showRequestException(exception, actionDescription);
+            onError.accept(
+                    requestExceptionMessage(
+                            exception,
+                            actionDescription
+                    )
+            );
         }
     }
 
     private boolean validatePostId(long postId) {
+        return validatePostId(postId, this::showError);
+    }
+
+    private boolean validatePostId(
+            long postId,
+            Consumer<String> onError
+    ) {
         if (postId > 0) {
             return true;
         }
 
-        showError("Mã bài viết phải lớn hơn 0.");
+        onError.accept("Mã bài viết phải lớn hơn 0.");
         return false;
     }
 
     private boolean validateCreateComment(
-            CreateCommentDTO createCommentDTO
+            CreateCommentDTO createCommentDTO,
+            Consumer<String> onError
     ) {
         if (createCommentDTO == null) {
-            showError("Thông tin bình luận không được null.");
+            onError.accept("Thông tin bình luận không được null.");
             return false;
         }
-        if (!validatePostId(createCommentDTO.getPostId())) {
+        if (!validatePostId(createCommentDTO.getPostId(), onError)) {
             return false;
         }
         if (createCommentDTO.getContent() == null
                 || createCommentDTO.getContent().isBlank()) {
-            showError("Nội dung bình luận không được để trống.");
+            onError.accept(
+                    "Nội dung bình luận không được để trống."
+            );
             return false;
         }
 
@@ -282,12 +461,25 @@ public class MainController {
     }
 
     private boolean validateCallback(Consumer<?> callback) {
+        return validateCallback(callback, this::showError);
+    }
+
+    private boolean validateCallback(
+            Consumer<?> callback,
+            Consumer<String> onError
+    ) {
         if (callback != null) {
             return true;
         }
 
-        showError("Callback nhận kết quả không được null.");
+        onError.accept("Callback nhận kết quả không được null.");
         return false;
+    }
+
+    private Consumer<String> safeErrorHandler(
+            Consumer<String> onError
+    ) {
+        return onError == null ? this::showError : onError;
     }
 
     private String responseMessage(
@@ -301,7 +493,7 @@ public class MainController {
         return "Không thể " + actionDescription + ".";
     }
 
-    private void showRequestException(
+    private String requestExceptionMessage(
             Throwable throwable,
             String actionDescription
     ) {
@@ -311,12 +503,10 @@ public class MainController {
             detail = cause.getClass().getSimpleName();
         }
 
-        showError(
-                "Không thể "
-                        + actionDescription
-                        + ": "
-                        + detail
-        );
+        return "Không thể "
+                + actionDescription
+                + ": "
+                + detail;
     }
 
     private Throwable rootCause(Throwable throwable) {

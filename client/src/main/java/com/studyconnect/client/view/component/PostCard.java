@@ -3,10 +3,15 @@ package com.studyconnect.client.view.component;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.ActionListener;
 
 public class PostCard extends MainTheme.RoundedPanel {
+    private final long postId;
+    private final JButton commentButton;
+    private int commentCount;
 
     public PostCard(
+            long postId,
             String author,
             String authorAvatarUrl,
             String time,
@@ -20,6 +25,11 @@ public class PostCard extends MainTheme.RoundedPanel {
             int comments
     ) {
         super(18);
+
+        this.postId = postId;
+        this.commentCount = Math.max(0, comments);
+
+        commentButton = action(MainTheme.IconType.COMMENT, "Bình luận (" + commentCount + ")");
 
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBorder(new EmptyBorder(16, 18, 16, 22));
@@ -156,11 +166,7 @@ public class PostCard extends MainTheme.RoundedPanel {
                 MainTheme.IconType.LIKE,
                 String.valueOf(Math.max(0, likes))
         ));
-        left.add(action(
-                MainTheme.IconType.COMMENT,
-                "Bình luận (" + Math.max(0, comments) + ")"
-        ));
-
+        left.add(commentButton);
         JPanel right = new JPanel(
                 new FlowLayout(FlowLayout.RIGHT, 4, 0)
         );
@@ -193,6 +199,24 @@ public class PostCard extends MainTheme.RoundedPanel {
         );
 
         return button;
+    }
+
+    public long getPostId() {
+        return postId;
+    }
+
+    public void addCommentListener(ActionListener listener) {
+        commentButton.addActionListener(listener);
+    }
+
+    @Deprecated
+    public void addCommentListerner(ActionListener listener) {
+        addCommentListener(listener);
+    }
+
+    public void setCommentCount(int commentCount) {
+        this.commentCount = Math.max(0, commentCount);
+        commentButton.setText("Bình luận (" + this.commentCount + ")");
     }
 
     private String escapeHtml(String value) {

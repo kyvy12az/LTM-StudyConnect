@@ -23,7 +23,7 @@ public final class AuthTheme {
     public static final Color ERROR = new Color(199, 54, 54);
     public static final Color SUCCESS = new Color(16, 165, 87);
     private static final Image BACKGROUND_IMAGE = loadImage("/images/background.png");
-    private static final Image LOGO_IMAGE = loadImage("/images/logo.png");
+    private static final Image LOGO_IMAGE = loadImage("/images/logo-final.png");
 
     private AuthTheme() { }
     public enum InputIcon { USER, MAIL }

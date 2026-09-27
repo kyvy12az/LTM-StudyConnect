@@ -167,9 +167,10 @@ public class CommentDAO {
     }
 
     private CommentDTO mapComment(ResultSet result) throws SQLException {
-        long parentValue = result.getLong("parent_comment_id");
-
-        Long parentCommentId = result.wasNull() ? null : parentValue;
+        Long parentCommentId = result.getObject(
+                "parent_comment_id",
+                Long.class
+        );
 
         Timestamp createdAt = result.getTimestamp("created_at");
 

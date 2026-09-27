@@ -70,7 +70,8 @@ public class ClientApplication {
                     new AuthController(
                             authService,
                             postService,
-                            commentService
+                            commentService,
+                            tcpClient
                     );
 
             controller.showLogin();

@@ -1,5 +1,6 @@
 package com.studyconnect.server.network.tcp;
 
+import com.studyconnect.common.dto.CommentCreatedEventDTO;
 import com.studyconnect.common.dto.CommentDTO;
 import com.studyconnect.common.dto.CreateCommentDTO;
 import com.studyconnect.common.dto.CreatePostDTO;
@@ -8,6 +9,8 @@ import com.studyconnect.common.dto.PostDTO;
 import com.studyconnect.common.dto.RegisterDTO;
 import com.studyconnect.common.protocol.Request;
 import com.studyconnect.common.protocol.Response;
+import com.studyconnect.common.protocol.ServerEvent;
+import com.studyconnect.common.protocol.ServerEventType;
 import com.studyconnect.common.protocol.StatusCode;
 import com.studyconnect.common.util.JsonUtils;
 import com.studyconnect.server.network.session.SessionManager;
@@ -18,22 +21,32 @@ import com.studyconnect.server.service.PostService;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 public class RequestRouter {
-
     private final AuthService authService;
     private final PostService postService;
     private final CommentService commentService;
     private final SessionManager sessionManager;
+    private final ClientConnectionManager connectionManager;
 
-    public RequestRouter() {
+    public RequestRouter(
+            ClientConnectionManager connectionManager
+    ) {
         this.authService = new AuthService();
         this.postService = new PostService();
         this.commentService = new CommentService();
         this.sessionManager = SessionManager.getInstance();
+        this.connectionManager = Objects.requireNonNull(
+                connectionManager,
+                "connectionManager"
+        );
     }
 
-    public Response<String> route(Request<String> request) {
+    public Response<String> route(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) {
         if (request == null) {
             return Response.error(
                     null,
@@ -41,7 +54,6 @@ public class RequestRouter {
                     "Request không được null"
             );
         }
-
         if (request.getAction() == null) {
             return Response.error(
                     request.getRequestId(),
@@ -53,18 +65,32 @@ public class RequestRouter {
         try {
             return switch (request.getAction()) {
                 case PING -> handlePing(request);
-
                 case REGISTER -> handleRegister(request);
                 case LOGIN -> handleLogin(request);
-                case LOGOUT -> handleLogout(request);
-
-                case CREATE_POST -> handleCreatePost(request);
-                case GET_POSTS -> handleGetPosts(request);
-                case GET_POST_DETAIL -> handleGetPostDetail(request);
-
-                case CREATE_COMMENT -> handleCreateComment(request);
-                case GET_COMMENTS -> handleGetComments(request);
-
+                case LOGOUT -> handleLogout(
+                        request,
+                        sourceConnection
+                );
+                case CREATE_POST -> handleCreatePost(
+                        request,
+                        sourceConnection
+                );
+                case GET_POSTS -> handleGetPosts(
+                        request,
+                        sourceConnection
+                );
+                case GET_POST_DETAIL -> handleGetPostDetail(
+                        request,
+                        sourceConnection
+                );
+                case CREATE_COMMENT -> handleCreateComment(
+                        request,
+                        sourceConnection
+                );
+                case GET_COMMENTS -> handleGetComments(
+                        request,
+                        sourceConnection
+                );
                 default -> Response.error(
                         request.getRequestId(),
                         StatusCode.BAD_REQUEST,
@@ -72,40 +98,33 @@ public class RequestRouter {
                                 + request.getAction()
                 );
             };
-
-        } catch (SecurityException e) {
+        } catch (SecurityException exception) {
             return Response.error(
                     request.getRequestId(),
                     StatusCode.UNAUTHORIZED,
-                    e.getMessage()
+                    exception.getMessage()
             );
-
-        } catch (NoSuchElementException e) {
+        } catch (NoSuchElementException exception) {
             return Response.error(
                     request.getRequestId(),
                     StatusCode.NOT_FOUND,
-                    e.getMessage()
+                    exception.getMessage()
             );
-
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException exception) {
             return Response.error(
                     request.getRequestId(),
                     StatusCode.BAD_REQUEST,
-                    e.getMessage()
+                    exception.getMessage()
             );
-
-        } catch (SQLException e) {
-            e.printStackTrace();
-
+        } catch (SQLException exception) {
+            exception.printStackTrace();
             return Response.error(
                     request.getRequestId(),
                     StatusCode.SERVER_ERROR,
                     "Lỗi truy cập cơ sở dữ liệu"
             );
-
-        } catch (RuntimeException e) {
-            e.printStackTrace();
-
+        } catch (RuntimeException exception) {
+            exception.printStackTrace();
             return Response.error(
                     request.getRequestId(),
                     StatusCode.BAD_REQUEST,
@@ -114,9 +133,9 @@ public class RequestRouter {
         }
     }
 
-    private Response<String> handlePing(Request<String> request) {
-        System.out.println("Nội dung PING: " + request.getData());
-
+    private Response<String> handlePing(
+            Request<String> request
+    ) {
         return Response.success(
                 request.getRequestId(),
                 "Server đang hoạt động",
@@ -128,12 +147,10 @@ public class RequestRouter {
             Request<String> request
     ) {
         requireData(request);
-
         RegisterDTO registerDTO = JsonUtils.fromJson(
                 request.getData(),
                 RegisterDTO.class
         );
-
         return authService.register(
                 request.getRequestId(),
                 registerDTO
@@ -144,12 +161,10 @@ public class RequestRouter {
             Request<String> request
     ) {
         requireData(request);
-
         LoginDTO loginDTO = JsonUtils.fromJson(
                 request.getData(),
                 LoginDTO.class
         );
-
         return authService.login(
                 request.getRequestId(),
                 loginDTO
@@ -157,12 +172,12 @@ public class RequestRouter {
     }
 
     private Response<String> handleLogout(
-            Request<String> request
+            Request<String> request,
+            ClientHandler sourceConnection
     ) {
-        requireUserId(request);
-
+        requireUserId(request, sourceConnection);
         sessionManager.removeSession(request.getToken());
-
+        connectionManager.unauthenticate(sourceConnection);
         return Response.success(
                 request.getRequestId(),
                 "Đăng xuất thành công",
@@ -171,21 +186,22 @@ public class RequestRouter {
     }
 
     private Response<String> handleCreatePost(
-            Request<String> request
+            Request<String> request,
+            ClientHandler sourceConnection
     ) throws SQLException {
-        long authorId = requireUserId(request);
+        long authorId = requireUserId(
+                request,
+                sourceConnection
+        );
         requireData(request);
-
         CreatePostDTO createPostDTO = JsonUtils.fromJson(
                 request.getData(),
                 CreatePostDTO.class
         );
-
         PostDTO createdPost = postService.createPost(
                 authorId,
                 createPostDTO
         );
-
         return Response.success(
                 request.getRequestId(),
                 "Đăng bài thành công",
@@ -194,28 +210,24 @@ public class RequestRouter {
     }
 
     private Response<String> handleGetPosts(
-            Request<String> request
+            Request<String> request,
+            ClientHandler sourceConnection
     ) throws SQLException {
-        requireUserId(request);
-
+        requireUserId(request, sourceConnection);
         List<PostDTO> posts;
 
         if (request.getData() == null
                 || request.getData().isBlank()
                 || "null".equals(request.getData())) {
-
             posts = postService.getAllPosts();
         } else {
             String subject = JsonUtils.fromJson(
                     request.getData(),
                     String.class
             );
-
-            if (subject == null || subject.isBlank()) {
-                posts = postService.getAllPosts();
-            } else {
-                posts = postService.getPostsBySubject(subject);
-            }
+            posts = subject == null || subject.isBlank()
+                    ? postService.getAllPosts()
+                    : postService.getPostsBySubject(subject);
         }
 
         return Response.success(
@@ -226,24 +238,21 @@ public class RequestRouter {
     }
 
     private Response<String> handleGetPostDetail(
-            Request<String> request
+            Request<String> request,
+            ClientHandler sourceConnection
     ) throws SQLException {
-        requireUserId(request);
+        requireUserId(request, sourceConnection);
         requireData(request);
-
         Long postId = JsonUtils.fromJson(
                 request.getData(),
                 Long.class
         );
-
         if (postId == null || postId <= 0) {
             throw new IllegalArgumentException(
                     "Mã bài viết không hợp lệ"
             );
         }
-
         PostDTO post = postService.getPostById(postId);
-
         return Response.success(
                 request.getRequestId(),
                 "Lấy chi tiết bài viết thành công",
@@ -252,21 +261,46 @@ public class RequestRouter {
     }
 
     private Response<String> handleCreateComment(
-            Request<String> request
+            Request<String> request,
+            ClientHandler sourceConnection
     ) throws SQLException {
-        long authorId = requireUserId(request);
+        long authorId = requireUserId(
+                request,
+                sourceConnection
+        );
         requireData(request);
 
         CreateCommentDTO createCommentDTO = JsonUtils.fromJson(
                 request.getData(),
                 CreateCommentDTO.class
         );
-
         CommentDTO createdComment =
                 commentService.createComment(
                         authorId,
                         createCommentDTO
                 );
+
+        int commentCount = commentService.countComments(
+                createdComment.getPostId()
+        );
+        long timestamp = System.currentTimeMillis();
+        CommentCreatedEventDTO eventData =
+                new CommentCreatedEventDTO(
+                        createdComment.getPostId(),
+                        createdComment,
+                        commentCount,
+                        timestamp
+                );
+        ServerEvent<String> event = new ServerEvent<>(
+                ServerEventType.COMMENT_CREATED,
+                JsonUtils.toJson(eventData)
+        );
+        event.setTimestamp(timestamp);
+
+        connectionManager.broadcastAuthenticated(
+                event,
+                sourceConnection
+        );
 
         return Response.success(
                 request.getRequestId(),
@@ -276,25 +310,22 @@ public class RequestRouter {
     }
 
     private Response<String> handleGetComments(
-            Request<String> request
+            Request<String> request,
+            ClientHandler sourceConnection
     ) throws SQLException {
-        requireUserId(request);
+        requireUserId(request, sourceConnection);
         requireData(request);
-
         Long postId = JsonUtils.fromJson(
                 request.getData(),
                 Long.class
         );
-
         if (postId == null || postId <= 0) {
             throw new IllegalArgumentException(
                     "Mã bài viết không hợp lệ"
             );
         }
-
         List<CommentDTO> comments =
                 commentService.getCommentsByPostId(postId);
-
         return Response.success(
                 request.getRequestId(),
                 "Lấy danh sách bình luận thành công",
@@ -302,10 +333,11 @@ public class RequestRouter {
         );
     }
 
-
-    private long requireUserId(Request<String> request) {
+    private long requireUserId(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) {
         String token = request.getToken();
-
         if (token == null || token.isBlank()) {
             throw new SecurityException(
                     "Bạn chưa đăng nhập"
@@ -313,13 +345,16 @@ public class RequestRouter {
         }
 
         Long userId = sessionManager.getUserId(token);
-
         if (userId == null) {
             throw new SecurityException(
                     "Phiên đăng nhập không hợp lệ hoặc đã hết hạn"
             );
         }
 
+        connectionManager.authenticate(
+                sourceConnection,
+                userId
+        );
         return userId;
     }
 

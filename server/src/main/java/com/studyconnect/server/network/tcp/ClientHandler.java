@@ -3,6 +3,8 @@ package com.studyconnect.server.network.tcp;
 import com.studyconnect.common.protocol.ActionType;
 import com.studyconnect.common.protocol.Request;
 import com.studyconnect.common.protocol.Response;
+import com.studyconnect.common.protocol.ServerEvent;
+import com.studyconnect.common.protocol.ServerFrameType;
 import com.studyconnect.common.protocol.StatusCode;
 
 import java.io.DataInputStream;
@@ -11,192 +13,246 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 public class ClientHandler implements Runnable {
-
     private final Socket socket;
     private final RequestRouter requestRouter;
+    private final ClientConnectionManager connectionManager;
     private final Consumer<String> logConsumer;
     private final Runnable disconnectCallback;
+    private final Object writeLock = new Object();
+
+    private volatile DataInputStream input;
+    private volatile DataOutputStream output;
 
     public ClientHandler(
             Socket socket,
+            RequestRouter requestRouter,
+            ClientConnectionManager connectionManager,
             Consumer<String> logConsumer,
             Runnable disconnectCallback
     ) {
-        this.socket = socket;
-        this.requestRouter = new RequestRouter();
+        this.socket = Objects.requireNonNull(socket, "socket");
+        this.requestRouter = Objects.requireNonNull(
+                requestRouter,
+                "requestRouter"
+        );
+        this.connectionManager = Objects.requireNonNull(
+                connectionManager,
+                "connectionManager"
+        );
         this.logConsumer = logConsumer;
         this.disconnectCallback = disconnectCallback;
     }
 
     @Override
     public void run() {
-        try (
-                DataInputStream input = new DataInputStream(
-                        socket.getInputStream()
-                );
+        try {
+            input = new DataInputStream(
+                    socket.getInputStream()
+            );
+            output = new DataOutputStream(
+                    socket.getOutputStream()
+            );
 
-                DataOutputStream output = new DataOutputStream(
-                        socket.getOutputStream()
-                )
-        ) {
-            while (!socket.isClosed()) {
+            while (isOpen()) {
                 try {
-                    Request<String> request = readRequest(input);
+                    Request<String> request = readRequest();
 
                     log(
-                            "[" + socket.getRemoteSocketAddress() + "] "
+                            "[" + getRemoteAddress() + "] "
                                     + "Action: " + request.getAction()
                                     + " | RequestId: "
                                     + request.getRequestId()
                     );
 
                     Response<String> response =
-                            requestRouter.route(request);
+                            requestRouter.route(request, this);
 
-                    writeResponse(output, response);
+                    sendResponse(response);
 
                     log(
-                            "[" + socket.getRemoteSocketAddress() + "] "
+                            "[" + getRemoteAddress() + "] "
                                     + "Response: "
                                     + response.getStatusCode()
                                     + " - "
                                     + response.getMessage()
                     );
-
-                } catch (InvalidActionException e) {
+                } catch (InvalidActionException exception) {
                     log(
                             "Client gửi Action không hợp lệ: "
-                                    + e.getActionName()
+                                    + exception.getActionName()
                     );
-
-                    Response<String> response = Response.error(
-                            e.getRequestId(),
+                    sendResponse(Response.error(
+                            exception.getRequestId(),
                             StatusCode.BAD_REQUEST,
                             "Action không hợp lệ: "
-                                    + e.getActionName()
-                    );
-
-                    writeResponse(output, response);
-
-                } catch (IllegalArgumentException e) {
+                                    + exception.getActionName()
+                    ));
+                } catch (IllegalArgumentException exception) {
                     log(
                             "Request không hợp lệ: "
-                                    + e.getMessage()
+                                    + exception.getMessage()
                     );
-
-                    Response<String> response = Response.error(
+                    sendResponse(Response.error(
                             null,
                             StatusCode.BAD_REQUEST,
                             "Request không hợp lệ: "
-                                    + e.getMessage()
-                    );
-
-                    writeResponse(output, response);
+                                    + exception.getMessage()
+                    ));
                 }
             }
-
-        } catch (EOFException | SocketException e) {
+        } catch (EOFException | SocketException exception) {
             log(
                     "Client đã đóng kết nối: "
-                            + socket.getRemoteSocketAddress()
+                            + getRemoteAddress()
             );
-
-        } catch (IOException e) {
-            if (!socket.isClosed()) {
+        } catch (IOException exception) {
+            if (isOpen()) {
                 log(
                         "Lỗi giao tiếp với client "
-                                + socket.getRemoteSocketAddress()
+                                + getRemoteAddress()
                                 + ": "
-                                + e.getMessage()
+                                + exception.getMessage()
                 );
             }
-
         } finally {
-            closeSocket();
-
+            connectionManager.unregister(this);
+            close();
             if (disconnectCallback != null) {
                 disconnectCallback.run();
             }
         }
     }
 
-    private Request<String> readRequest(
-            DataInputStream input
-    ) throws IOException {
-        String requestId = input.readUTF();
-        String actionName = input.readUTF();
-
-        boolean hasToken = input.readBoolean();
-
-        String token = null;
-
-        if (hasToken) {
-            token = input.readUTF();
+    private Request<String> readRequest()
+            throws IOException {
+        DataInputStream currentInput = input;
+        if (currentInput == null) {
+            throw new EOFException("Input stream đã đóng");
         }
 
-        String data = input.readUTF();
-        long timestamp = input.readLong();
+        String requestId = currentInput.readUTF();
+        String actionName = currentInput.readUTF();
+        boolean hasToken = currentInput.readBoolean();
+        String token = hasToken
+                ? currentInput.readUTF()
+                : null;
+        String data = currentInput.readUTF();
+        long timestamp = currentInput.readLong();
 
-        ActionType action = ActionType.valueOf(actionName);
+        ActionType action;
+        try {
+            action = ActionType.valueOf(actionName);
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidActionException(
+                    requestId,
+                    actionName
+            );
+        }
 
         Request<String> request = new Request<>(
                 action,
                 token,
                 data
         );
-
         request.setRequestId(requestId);
         request.setTimestamp(timestamp);
-
         return request;
     }
 
-    private void writeResponse(
-            DataOutputStream output,
+    public void sendResponse(
             Response<String> response
     ) throws IOException {
-        output.writeUTF(
-                response.getRequestId() == null
-                        ? ""
-                        : response.getRequestId()
-        );
+        Objects.requireNonNull(response, "response");
+        synchronized (writeLock) {
+            DataOutputStream currentOutput = requireOutput();
+            currentOutput.writeUTF(
+                    ServerFrameType.RESPONSE.name()
+            );
+            currentOutput.writeUTF(
+                    response.getRequestId() == null
+                            ? ""
+                            : response.getRequestId()
+            );
 
-        StatusCode statusCode = response.getStatusCode();
-
-        output.writeUTF(
-                statusCode == null
-                        ? StatusCode.SERVER_ERROR.name()
-                        : statusCode.name()
-        );
-
-        output.writeUTF(
-                response.getMessage() == null
-                        ? ""
-                        : response.getMessage()
-        );
-
-        output.writeUTF(
-                response.getData() == null
-                        ? ""
-                        : response.getData()
-        );
-
-        output.writeLong(response.getTimestamp());
-        output.flush();
+            StatusCode statusCode = response.getStatusCode();
+            currentOutput.writeUTF(
+                    statusCode == null
+                            ? StatusCode.SERVER_ERROR.name()
+                            : statusCode.name()
+            );
+            currentOutput.writeUTF(
+                    response.getMessage() == null
+                            ? ""
+                            : response.getMessage()
+            );
+            currentOutput.writeUTF(
+                    response.getData() == null
+                            ? ""
+                            : response.getData()
+            );
+            currentOutput.writeLong(response.getTimestamp());
+            currentOutput.flush();
+        }
     }
 
-    private void closeSocket() {
+    public void sendEvent(
+            ServerEvent<String> event
+    ) throws IOException {
+        Objects.requireNonNull(event, "event");
+        Objects.requireNonNull(event.getType(), "event.type");
+
+        synchronized (writeLock) {
+            DataOutputStream currentOutput = requireOutput();
+            currentOutput.writeUTF(
+                    ServerFrameType.EVENT.name()
+            );
+            currentOutput.writeUTF(event.getType().name());
+            currentOutput.writeUTF(
+                    event.getData() == null
+                            ? ""
+                            : event.getData()
+            );
+            currentOutput.writeLong(event.getTimestamp());
+            currentOutput.flush();
+        }
+    }
+
+    private DataOutputStream requireOutput()
+            throws IOException {
+        if (!isOpen() || output == null) {
+            throw new IOException(
+                    "Kết nối client đã đóng"
+            );
+        }
+        return output;
+    }
+
+    public boolean isOpen() {
+        return !socket.isClosed()
+                && socket.isConnected();
+    }
+
+    public String getRemoteAddress() {
+        return String.valueOf(
+                socket.getRemoteSocketAddress()
+        );
+    }
+
+    public void close() {
         if (socket.isClosed()) {
             return;
         }
-
         try {
             socket.close();
-        } catch (IOException e) {
-            log("Không thể đóng socket: " + e.getMessage());
+        } catch (IOException exception) {
+            log(
+                    "Không thể đóng socket: "
+                            + exception.getMessage()
+            );
         }
     }
 
@@ -210,25 +266,23 @@ public class ClientHandler implements Runnable {
 
     private static class InvalidActionException
             extends IllegalArgumentException {
-
         private final String requestId;
         private final String actionName;
 
-        public InvalidActionException(
+        InvalidActionException(
                 String requestId,
                 String actionName
         ) {
             super("Action không hợp lệ: " + actionName);
-
             this.requestId = requestId;
             this.actionName = actionName;
         }
 
-        public String getRequestId() {
+        String getRequestId() {
             return requestId;
         }
 
-        public String getActionName() {
+        String getActionName() {
             return actionName;
         }
     }

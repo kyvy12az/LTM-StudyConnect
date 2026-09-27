@@ -1,22 +1,27 @@
 package com.studyconnect.client.controller;
 
 import com.studyconnect.client.model.CurrentUser;
+import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.client.service.AuthService;
 import com.studyconnect.client.service.CommentService;
 import com.studyconnect.client.service.PostService;
 import com.studyconnect.client.view.auth.LoginFrame;
 import com.studyconnect.client.view.auth.RegisterFrame;
 import com.studyconnect.client.view.main.MainFrame;
+import com.studyconnect.client.view.component.CommentDialog;
 import com.studyconnect.common.dto.*;
 import com.studyconnect.common.protocol.Response;
 
 import javax.swing.SwingWorker;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 public class AuthController {
 
     private final AuthService authService;
     private final PostService postService;
     private final CommentService commentService;
+    private final TCPClient tcpClient;
 
     private LoginFrame loginFrame;
     private RegisterFrame registerFrame;
@@ -27,7 +32,8 @@ public class AuthController {
     public AuthController(
             AuthService authService,
             PostService postService,
-            CommentService commentService
+            CommentService commentService,
+            TCPClient tcpClient
     ) {
         if (authService == null) {
             throw new IllegalArgumentException(
@@ -47,9 +53,16 @@ public class AuthController {
             );
         }
 
+        if (tcpClient == null) {
+            throw new IllegalArgumentException(
+                    "TCPClient không được null"
+            );
+        }
+
         this.authService = authService;
         this.postService = postService;
         this.commentService = commentService;
+        this.tcpClient = tcpClient;
     }
 
     public void showLogin() {
@@ -312,7 +325,8 @@ public class AuthController {
         mainController = new MainController(
                 mainFrame,
                 postService,
-                commentService
+                commentService,
+                tcpClient
         );
 
         mainFrame.setVisible(true);
@@ -376,6 +390,120 @@ public class AuthController {
                     }
             );
         });
+
+        mainFrame.setCommentListener(this::openComments);
+    }
+
+    private void openComments(PostDTO post) {
+        if (post == null || post.getId() <= 0) {
+            mainFrame.showError("Không thể mở bình luận của bài viết này.");
+            return;
+        }
+
+        String postTitle = post.getTitle() == null
+                || post.getTitle().isBlank()
+                ? "Bài viết"
+                : post.getTitle().trim();
+
+        CommentDialog dialog = new CommentDialog(
+                mainFrame,
+                postTitle
+        );
+
+        mainController.setActiveCommentDialog(post.getId(), dialog);
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                mainController.clearActiveCommentDialog(dialog);
+            }
+
+            @Override
+            public void windowClosed(WindowEvent event) {
+                mainController.clearActiveCommentDialog(dialog);
+            }
+        });
+
+        dialog.addSendListener(
+                event -> submitComment(dialog, post.getId())
+        );
+
+        reloadComments(dialog, post.getId());
+        dialog.setVisible(true);
+    }
+
+    private void submitComment(
+            CommentDialog dialog,
+            long postId
+    ) {
+        String content = dialog.getCommentContent();
+
+        if (content.isBlank()) {
+            dialog.showError(
+                    "Vui lòng nhập nội dung bình luận."
+            );
+            return;
+        }
+
+        dialog.setLoading(true);
+        dialog.showStatus("Đang gửi bình luận...");
+
+        CreateCommentDTO createCommentDTO =
+                new CreateCommentDTO(
+                        postId,
+                        content,
+                        dialog.getReplyParentId()
+                );
+
+        mainController.createComment(
+                createCommentDTO,
+                createdComment -> {
+                    if (dialog.isDisplayable()) {
+                        dialog.setLoading(false);
+                        dialog.clearInput();
+                        dialog.clearReplyTarget();
+                        dialog.addOrUpdateComment(createdComment);
+                        reloadComments(dialog, postId);
+                    }
+                },
+                message -> {
+                    if (dialog.isDisplayable()) {
+                        dialog.setLoading(false);
+                        dialog.showError(message);
+                    }
+                }
+        );
+    }
+
+    private void reloadComments(
+            CommentDialog dialog,
+            long postId
+    ) {
+        dialog.showStatus("Đang tải bình luận...");
+
+        mainController.loadComments(
+                postId,
+                comments -> {
+                    if (!dialog.isDisplayable()) {
+                        return;
+                    }
+
+                    dialog.displayComments(comments);
+                    mainFrame.updatePostCommentCount(
+                            postId,
+                            comments.size()
+                    );
+                    dialog.showStatus(
+                            comments.isEmpty()
+                                    ? "Chưa có bình luận."
+                                    : comments.size() + " bình luận"
+                    );
+                },
+                message -> {
+                    if (dialog.isDisplayable()) {
+                        dialog.showError(message);
+                    }
+                }
+        );
     }
 
     private String getCauseMessage(Exception exception) {

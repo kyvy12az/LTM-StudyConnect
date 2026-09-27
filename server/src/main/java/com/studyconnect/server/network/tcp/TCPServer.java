@@ -6,95 +6,113 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-
 public class TCPServer {
     private final int port;
     private final ServerEventListener eventListener;
     private final ExecutorService clientPool;
-    private final Set<Socket> connectedClients;
-
-    private final AtomicBoolean stopped = new AtomicBoolean(false);
+    private final ClientConnectionManager connectionManager;
+    private final RequestRouter requestRouter;
+    private final AtomicBoolean stopped =
+            new AtomicBoolean(false);
 
     private volatile ServerSocket serverSocket;
     private volatile boolean running;
 
-    public TCPServer(int port, ServerEventListener eventListener) {
+    public TCPServer(
+            int port,
+            ServerEventListener eventListener
+    ) {
         this.port = port;
         this.eventListener = eventListener;
         this.clientPool = Executors.newCachedThreadPool();
-        this.connectedClients = ConcurrentHashMap.newKeySet();
+        this.connectionManager =
+                new ClientConnectionManager();
+        this.requestRouter =
+                new RequestRouter(connectionManager);
     }
 
-    // contructor dùng khi muốn chạy server bằng console
     public TCPServer(int port) {
         this(port, null);
     }
 
-    // khởi động server và chờ client kết nối
     public void run() {
         if (running) {
             log("Server đã chạy.");
             return;
         }
-
         if (stopped.get()) {
-            log("Server này đã được dừng. " + "Hãy tạo đối tượng TCPServer mới.");
+            log(
+                    "Server này đã được dừng. "
+                            + "Hãy tạo đối tượng TCPServer mới."
+            );
             return;
         }
 
         try {
             serverSocket = new ServerSocket(port);
             running = true;
-
             log("================================");
             log("Server đang chạy tại cổng " + port);
             log("Server đang chờ client...");
             log("================================");
-
             notifyStatusChanged(true);
 
             while (running) {
                 try {
-                    Socket clientSocket = serverSocket.accept();
-
-//                    System.out.println("Client kết nối: " + clientSocket.getRemoteSocketAddress());
-
+                    Socket clientSocket =
+                            serverSocket.accept();
                     if (!running) {
                         closeSocket(clientSocket);
                         break;
                     }
 
-                    connectedClients.add(clientSocket);
+                    ClientHandler handler = new ClientHandler(
+                            clientSocket,
+                            requestRouter,
+                            connectionManager,
+                            this::log,
+                            this::notifyClientCountChanged
+                    );
+                    connectionManager.register(handler);
 
-                    log("Client kết nối: " + clientSocket.getRemoteSocketAddress());
+                    log(
+                            "Client kết nối: "
+                                    + handler.getRemoteAddress()
+                    );
                     notifyClientCountChanged();
 
-                    ClientHandler handler = new ClientHandler(
-                        clientSocket, this::log,
-                        () -> clientDisconnected(
-                                clientSocket
-                        )
-                    );
-                    clientPool.submit(handler);
-                } catch (SocketException e) {
-                    // socket bị đóng khi stop() được gọi
+                    try {
+                        clientPool.submit(handler);
+                    } catch (RejectedExecutionException exception) {
+                        connectionManager.unregister(handler);
+                        handler.close();
+                        log(
+                                "Không thể tạo luồng xử lý client: "
+                                        + exception.getMessage()
+                        );
+                    }
+                } catch (SocketException exception) {
                     if (running) {
-                        log("Lỗi khi chấp nhận client: " + e.getMessage());
+                        log(
+                                "Lỗi khi chấp nhận client: "
+                                        + exception.getMessage()
+                        );
                     }
                     break;
-                } catch (RejectedExecutionException e) {
-                    log("Không thể tạo luồng xử lý client: " + e.getMessage());
                 }
             }
-        } catch (IOException e) {
-           log("Không thể khởi động server tại cổng " + port + ": " + e.getMessage());
+        } catch (IOException exception) {
+            log(
+                    "Không thể khởi động server tại cổng "
+                            + port
+                            + ": "
+                            + exception.getMessage()
+            );
         } finally {
             shutdown();
         }
@@ -106,57 +124,45 @@ public class TCPServer {
 
     private synchronized void shutdown() {
         if (!stopped.compareAndSet(false, true)) {
-            return; // đã dừng rồi
-        }
-
-        running = false;
-
-        closeServerSocket();
-        closeAllClients();
-
-        clientPool.shutdownNow();
-
-        notifyClientCountChanged();
-        notifyStatusChanged(false);
-
-        log("TCP Server đã dừng.");
-    }
-
-    private void clientDisconnected(Socket clientSocket) {
-        boolean removed = connectedClients.remove(clientSocket);
-        closeSocket(clientSocket);
-        if (removed) {
-            log("Client đã đóng kết nối: " + clientSocket.getRemoteSocketAddress());
-            notifyClientCountChanged();
-        }
-    }
-
-    private void closeServerSocket() {
-        if (serverSocket == null || serverSocket.isClosed()) {
             return;
         }
 
-        try {
-            serverSocket.close();
-        } catch (IOException e) {
-            log("Lỗi khi đóng ServerSocket: " + e.getMessage());
-        }
+        running = false;
+        closeServerSocket();
+        connectionManager.closeAll();
+        clientPool.shutdownNow();
+        notifyClientCountChanged();
+        notifyStatusChanged(false);
+        log("TCP Server đã dừng.");
     }
 
-    private void closeAllClients() {
-        for (Socket clientSocket : connectedClients) {
-            closeSocket(clientSocket);
+    private void closeServerSocket() {
+        ServerSocket currentServerSocket = serverSocket;
+        if (currentServerSocket == null
+                || currentServerSocket.isClosed()) {
+            return;
         }
-
-        connectedClients.clear();
+        try {
+            currentServerSocket.close();
+        } catch (IOException exception) {
+            log(
+                    "Lỗi khi đóng ServerSocket: "
+                            + exception.getMessage()
+            );
+        }
     }
 
     private void closeSocket(Socket socket) {
-        if (socket == null || socket.isClosed()) return;
-
+        if (socket == null || socket.isClosed()) {
+            return;
+        }
         try {
             socket.close();
-        } catch (IOException ignored) {
+        } catch (IOException exception) {
+            log(
+                    "Lỗi khi đóng socket: "
+                            + exception.getMessage()
+            );
         }
     }
 
@@ -177,7 +183,7 @@ public class TCPServer {
     private void notifyClientCountChanged() {
         if (eventListener != null) {
             eventListener.onClientCountChanged(
-                    connectedClients.size()
+                    connectionManager.getConnectionCount()
             );
         }
     }
@@ -191,6 +197,6 @@ public class TCPServer {
     }
 
     public int getClientCount() {
-        return connectedClients.size();
+        return connectionManager.getConnectionCount();
     }
 }

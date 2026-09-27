@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.awt.event.ActionListener;
 
@@ -44,8 +46,12 @@ public class MainFrame extends JFrame {
     );
     private final List<Consumer<String>> categoryListeners =
             new ArrayList<>();
+    private final Map<Long, PostCard> postCardsById =
+            new HashMap<>();
 
     private String selectedSubject;
+
+    private Consumer<PostDTO> commentListener;
 
     public MainFrame() {
         setTitle("StudyConnect - Kết nối tri thức");
@@ -735,45 +741,40 @@ public class MainFrame extends JFrame {
         return right;
     }
 
-    private AvatarView createCurrentUserAvatar(
-            int size
-    ) {
+    private AvatarView createCurrentUserAvatar(int size) {
         UserDTO user = CurrentUser.getUser();
 
-        String name = user == null
-                ? displayName
-                : user.getFullName();
+        String name = displayName;
 
-        AvatarView avatar = new AvatarView(
-                name,
-                size
-        );
+        if (user != null
+                && user.getFullName() != null
+                && !user.getFullName().isBlank()) {
+            name = user.getFullName().trim();
+        }
+
+        AvatarView avatar = new AvatarView(name, size);
 
         avatar.setOnline(
                 user != null && user.isOnline()
         );
 
-        if (user == null
-                || user.getAvatarUrl() == null
-                || user.getAvatarUrl().isBlank()) {
+        String avatarUrl = user == null
+                ? null
+                : user.getAvatarUrl();
+
+        // Không có avatar thì sử dụng ảnh mặc định.
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            avatar.setAvatarResource("/images/default-avatar.png");
+
             return avatar;
         }
-
-        String avatarUrl =
-                user.getAvatarUrl().trim();
-
-        if (avatarUrl.startsWith("http://")
-                || avatarUrl.startsWith("https://")) {
+        avatarUrl = avatarUrl.trim();
+        if (avatarUrl.startsWith("http://") || avatarUrl.startsWith("https://")) {
             avatar.setAvatarUrl(avatarUrl);
-
         } else if (avatarUrl.startsWith("/")) {
-            // Ảnh trong src/main/resources
             avatar.setAvatarResource(avatarUrl);
-
         } else {
-            avatar.setAvatarResource(
-                    "/images/" + avatarUrl
-            );
+            avatar.setAvatarResource("/images/" + avatarUrl);
         }
 
         return avatar;
@@ -946,6 +947,7 @@ public class MainFrame extends JFrame {
                 : new ArrayList<>(posts);
 
         runOnEdt(() -> {
+            postCardsById.clear();
             postsContainer.removeAll();
 
             if (safePosts.isEmpty()) {
@@ -961,6 +963,7 @@ public class MainFrame extends JFrame {
 
                 for (int index = 0; index < safePosts.size(); index++) {
                     PostCard card = createPostCard(safePosts.get(index));
+                    postCardsById.put(card.getPostId(), card);
                     addFeedComponent(postsContainer, card);
 
                     if (index < safePosts.size() - 1) {
@@ -1035,24 +1038,28 @@ public class MainFrame extends JFrame {
                 ""
         );
 
-        return new PostCard(
+        PostCard card = new PostCard(
+                post.getId(),
                 authorName,
                 authorAvatarUrl,
                 formatCreatedAt(post.getCreatedAt()),
                 subjectIcon(subject) + "  " + subject,
                 title,
                 content,
-
-                // Chưa có dữ liệu tệp đính kèm
+                null, // chưa có dữ liệu tệp đính kèm
                 null,
                 null,
-                null,
-
-                // Chưa hỗ trợ lượt thích
-                0,
-
+                Math.max(0, post.getLikeCount()),
                 Math.max(0, post.getCommentCount())
         );
+
+        card.addCommentListener(event -> {
+            if (commentListener != null) {
+                commentListener.accept(post);
+            }
+        });
+
+        return card;
     }
 
     private String subjectIcon(String subject) {
@@ -1105,6 +1112,24 @@ public class MainFrame extends JFrame {
     private void refreshPostsContainer() {
         postsContainer.revalidate();
         postsContainer.repaint();
+    }
+
+    public void setCommentListener(
+            Consumer<PostDTO> commentListener
+    ) {
+        this.commentListener = commentListener;
+    }
+
+    public void updatePostCommentCount(
+            long postId,
+            int commentCount
+    ) {
+        runOnEdt(() -> {
+            PostCard card = postCardsById.get(postId);
+            if (card != null) {
+                card.setCommentCount(commentCount);
+            }
+        });
     }
 
     private String valueOrDefault(String value, String fallback) {
