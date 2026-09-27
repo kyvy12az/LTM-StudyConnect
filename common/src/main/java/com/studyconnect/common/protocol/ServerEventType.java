@@ -1,5 +1,7 @@
 package com.studyconnect.common.protocol;
 
 public enum ServerEventType {
-    COMMENT_CREATED
+    POST_CREATED,
+    COMMENT_CREATED,
+    ONLINE_USERS_UPDATED
 }

@@ -16,6 +16,7 @@ public class CommentDAO {
                 c.post_id,
                 c.author_id,
                 COALESCE(u.full_name, u.username) AS author_name,
+                u.avatar_url AS author_avatar_url,
                 c.content,
                 c.parent_comment_id,
                 c.created_at
@@ -179,6 +180,7 @@ public class CommentDAO {
                 result.getLong("post_id"),
                 result.getLong("author_id"),
                 result.getString("author_name"),
+                result.getString("author_avatar_url"),
                 result.getString("content"),
                 parentCommentId,
                 createdAt != null ? createdAt.getTime() : 0

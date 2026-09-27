@@ -9,6 +9,7 @@ public class CommentDTO implements Serializable {
     private long postId;
     private long authorId;
     private String authorName;
+    private String authorAvatarUrl;
     private String content;
     private Long parentCommentId;
     private long createdAt;
@@ -16,11 +17,12 @@ public class CommentDTO implements Serializable {
     public CommentDTO() {
     }
 
-    public CommentDTO(long id, long postId, long authorId, String authorName, String content, Long parentCommentId, long createdAt) {
+    public CommentDTO(long id, long postId, long authorId, String authorName, String authorAvatarUrl, String content, Long parentCommentId, long createdAt) {
         this.id = id;
         this.postId = postId;
         this.authorId = authorId;
         this.authorName = authorName;
+        this.authorAvatarUrl = authorAvatarUrl;
         this.content = content;
         this.parentCommentId = parentCommentId;
         this.createdAt = createdAt;
@@ -56,6 +58,14 @@ public class CommentDTO implements Serializable {
 
     public void setAuthorName(String authorName) {
         this.authorName = authorName;
+    }
+
+    public String getAuthorAvatarUrl() {
+        return authorAvatarUrl;
+    }
+
+    public void setAuthorAvatarUrl(String authorAvatarUrl) {
+        this.authorAvatarUrl = authorAvatarUrl;
     }
 
     public String getContent() {

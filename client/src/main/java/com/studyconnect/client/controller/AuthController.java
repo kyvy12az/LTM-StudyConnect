@@ -363,8 +363,7 @@ public class AuthController {
         });
 
         mainFrame.addCreatePostListener(event -> {
-            CreatePostDTO createPostDTO =
-                    mainFrame.getCreatePostData();
+            CreatePostDTO createPostDTO = mainFrame.getCreatePostData();
 
             if (createPostDTO == null) {
                 return;
@@ -377,15 +376,9 @@ public class AuthController {
                     createdPost -> {
                         mainFrame.setCreatePostLoading(false);
                         mainFrame.clearPostInput();
+                        mainFrame.addOrUpdatePost(createdPost);
                         mainFrame.showSuccess(
                                 "Đăng bài thành công"
-                        );
-
-                        mainFrame.setFeedLoading(true);
-
-                        mainController.loadPostsBySubject(
-                                mainFrame.getSelectedSubject(),
-                                mainFrame::displayPosts
                         );
                     }
             );

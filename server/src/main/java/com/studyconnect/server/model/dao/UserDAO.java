@@ -6,7 +6,7 @@ import com.studyconnect.server.model.database.DatabaseConnection;
 import com.studyconnect.server.model.entity.User;
 
 import java.sql.*;
-import java.util.Optional;
+import java.util.*;
 
 public class UserDAO {
 
@@ -63,6 +63,61 @@ public class UserDAO {
                 return new UserDTO(userId, registerDTO.getUsername(), registerDTO.getFullName(), registerDTO.getEmail(), null, true);
             }
         }
+    }
+
+    public List<UserDTO> findByIds(Set<Long> userIds) throws SQLException {
+        List<UserDTO> users = new ArrayList<>();
+
+        if (userIds == null || userIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        String placeholders = String.join(
+                ",",
+                Collections.nCopies(
+                        userIds.size(),
+                        "?"
+                )
+        );
+
+        String sql = """
+                SELECT id, username, full_name, email, avatar_url
+                FROM users
+                WHERE id IN (%s)
+                AND status = 'ACTIVE'
+                ORDER BY COALESCE(full_name, username)
+                """.formatted(placeholders);
+
+        try (
+                Connection connection = DatabaseConnection.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql);
+        ) {
+            int index = 1;
+            for (Long userId : userIds) {
+                if (userId != null) {
+                    statement.setLong(
+                            index++,
+                            userId
+                    );
+                }
+            }
+
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    UserDTO user = new UserDTO(
+                            result.getLong("id"),
+                            result.getString("username"),
+                            result.getString("full_name"),
+                            result.getString("email"),
+                            result.getString("avatar_url"),
+                            true
+                    );
+
+                    users.add(user);
+                }
+            }
+        }
+        return users;
     }
 
     public Optional<User> findByUsernameOrEmail(String account) throws SQLException {

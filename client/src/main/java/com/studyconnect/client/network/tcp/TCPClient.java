@@ -35,14 +35,8 @@ public class TCPClient implements AutoCloseable {
     private final int serverPort;
     private final Object lifecycleLock = new Object();
     private final Object writeLock = new Object();
-    private final ConcurrentMap<
-            String,
-            CompletableFuture<Response<String>>
-            > pendingRequests = new ConcurrentHashMap<>();
-    private final ConcurrentMap<
-            ServerEventType,
-            CopyOnWriteArrayList<Consumer<ServerEvent<String>>>
-            > eventListeners = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CompletableFuture<Response<String>>> pendingRequests = new ConcurrentHashMap<>();
+    private final ConcurrentMap<ServerEventType, CopyOnWriteArrayList<Consumer<ServerEvent<String>>>> eventListeners = new ConcurrentHashMap<>();
     private final ExecutorService eventDispatcher =
             Executors.newSingleThreadExecutor(runnable -> {
                 Thread thread = new Thread(

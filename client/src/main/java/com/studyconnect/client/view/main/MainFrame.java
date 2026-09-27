@@ -49,6 +49,8 @@ public class MainFrame extends JFrame {
     private final Map<Long, PostCard> postCardsById =
             new HashMap<>();
 
+    private final JPanel onlineUsersPanel = new JPanel();
+
     private String selectedSubject;
 
     private Consumer<PostDTO> commentListener;
@@ -799,14 +801,124 @@ public class MainFrame extends JFrame {
     }
 
     private JComponent createOnlineCard() {
-        MainTheme.RoundedPanel card = sectionCard("Đang trực tuyến", "Xem tất cả");
-        JPanel list = sectionBody(card);
-        list.add(new OnlineUserItem("Nguyễn Linh Chi", "Đang học: Lập trình Java")); list.add(Box.createVerticalStrut(7));
-        list.add(new OnlineUserItem("Trần Minh Hoàng", "Đang soạn tài liệu")); list.add(Box.createVerticalStrut(7));
-        list.add(new OnlineUserItem("Lê Phương Anh", "Đang online")); list.add(Box.createVerticalStrut(7));
-        list.add(new OnlineUserItem("Phạm Quang Huy", "Đang học: AI - Machine Learning"));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 282));
+        MainTheme.RoundedPanel card =
+                sectionCard(
+                        "Đang trực tuyến",
+                        "Xem tất cả"
+                );
+
+        onlineUsersPanel.setOpaque(false);
+        onlineUsersPanel.setLayout(
+                new BoxLayout(
+                        onlineUsersPanel,
+                        BoxLayout.Y_AXIS
+                )
+        );
+
+        JLabel loadingLabel =
+                new JLabel("Đang tải...");
+
+        loadingLabel.setFont(
+                MainTheme.font(
+                        Font.PLAIN,
+                        12
+                )
+        );
+
+        loadingLabel.setForeground(
+                MainTheme.MUTED
+        );
+
+        onlineUsersPanel.add(loadingLabel);
+
+        card.add(
+                onlineUsersPanel,
+                BorderLayout.CENTER
+        );
+
+        card.setMaximumSize(
+                new Dimension(
+                        Integer.MAX_VALUE,
+                        320
+                )
+        );
+
         return card;
+    }
+
+    public void displayOnlineUsers(
+            List<UserDTO> users
+    ) {
+        List<UserDTO> safeUsers =
+                users == null
+                        ? Collections.emptyList()
+                        : new ArrayList<>(users);
+
+        runOnEdt(() -> {
+            onlineUsersPanel.removeAll();
+
+            UserDTO currentUser =
+                    CurrentUser.getUser();
+
+            ///  không hiển thị chính mình trong danh sách
+            safeUsers.removeIf(user ->
+                    user == null
+                            || (currentUser != null
+                            && user.getId()
+                            == currentUser.getId())
+            );
+
+            if (safeUsers.isEmpty()) {
+                JLabel emptyLabel =
+                        new JLabel(
+                                "Chưa có người dùng khác online"
+                        );
+
+                emptyLabel.setFont(
+                        MainTheme.font(
+                                Font.PLAIN,
+                                12
+                        )
+                );
+
+                emptyLabel.setForeground(
+                        MainTheme.MUTED
+                );
+
+                emptyLabel.setBorder(
+                        new EmptyBorder(
+                                12,
+                                0,
+                                12,
+                                0
+                        )
+                );
+
+                onlineUsersPanel.add(emptyLabel);
+
+            } else {
+                for (int index = 0;
+                     index < safeUsers.size();
+                     index++) {
+
+                    onlineUsersPanel.add(
+                            new OnlineUserItem(
+                                    safeUsers.get(index)
+                            )
+                    );
+
+                    if (index
+                            < safeUsers.size() - 1) {
+                        onlineUsersPanel.add(
+                                Box.createVerticalStrut(7)
+                        );
+                    }
+                }
+            }
+
+            onlineUsersPanel.revalidate();
+            onlineUsersPanel.repaint();
+        });
     }
 
     private JComponent createScheduleCard() {
@@ -861,6 +973,74 @@ public class MainFrame extends JFrame {
         if (user.getFullName() != null && !user.getFullName().isBlank()) return user.getFullName().trim();
         if (user.getUsername() != null && !user.getUsername().isBlank()) return user.getUsername().trim();
         return "Bạn";
+    }
+
+    public void addOrUpdatePost(PostDTO post) {
+        if (post == null || post.getId() <= 0) return;
+
+        runOnEdt(() -> {
+            if (!isPostVisibleInSelectedSubject(post)) return;
+            if (postCardsById.containsKey(post.getId())) return;
+            
+            boolean hasExistingPosts = !postCardsById.isEmpty();
+            
+            postsContainer.remove(postsStatusLabel);
+            postsStatusLabel.setVisible(false);
+            
+            PostCard card = createPostCard(post);
+            
+            postCardsById.put(post.getId(), card);
+            
+            addFeedComponentAt(postsContainer, card, 0);
+            
+            if (hasExistingPosts) {
+                postsContainer.add(Box.createRigidArea(new Dimension(0, 14)), 1);
+            }
+            
+            refreshPostsContainer();
+        });
+    }
+
+    private boolean isPostVisibleInSelectedSubject(
+            PostDTO post
+    ) {
+        // selectedSubject == null nghĩa là đang xem "Tất cả"
+        if (selectedSubject == null || selectedSubject.isBlank()) {
+            return true;
+        }
+
+        String postSubject = post.getSubject();
+
+        return postSubject != null && selectedSubject.trim().equalsIgnoreCase(
+                postSubject.trim()
+        );
+    }
+
+    private void addFeedComponentAt(
+            MainTheme.VerticalPanel feed,
+            JComponent component,
+            int index
+    ) {
+        component.setAlignmentX(
+                Component.LEFT_ALIGNMENT
+        );
+
+        Dimension maximumSize =
+                component.getMaximumSize();
+
+        int maximumHeight =
+                maximumSize == null
+                        ? Integer.MAX_VALUE
+                        : maximumSize.height;
+
+        component.setMaximumSize(
+                new Dimension(
+                        Integer.MAX_VALUE,
+                        maximumHeight
+                )
+        );
+
+        feed.add(component, index);
     }
 
     public void addCreatePostListener(ActionListener listener) {

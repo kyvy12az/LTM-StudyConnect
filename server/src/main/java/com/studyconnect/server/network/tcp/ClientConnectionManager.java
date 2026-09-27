@@ -15,6 +15,8 @@ public class ClientConnectionManager {
     private final ConcurrentMap<ClientHandler, Long>
             usersByConnection = new ConcurrentHashMap<>();
 
+    private volatile Runnable presenceChangedListener;
+
     public void register(ClientHandler handler) {
         if (handler != null) {
             connections.add(handler);
@@ -33,8 +35,10 @@ public class ClientConnectionManager {
                 handler,
                 userId
         );
-        if (previousUser != null
-                && previousUser.longValue() != userId) {
+        if (previousUser != null && previousUser.longValue() == userId) {
+            return;
+        }
+        if (previousUser != null) {
             removeFromUser(previousUser, handler);
         }
 
@@ -42,6 +46,8 @@ public class ClientConnectionManager {
                 userId,
                 ignored -> ConcurrentHashMap.newKeySet()
         ).add(handler);
+
+        notifyPresenceChanged();
     }
 
     public void unauthenticate(ClientHandler handler) {
@@ -49,8 +55,12 @@ public class ClientConnectionManager {
             return;
         }
         Long userId = usersByConnection.remove(handler);
-        if (userId != null) {
-            removeFromUser(userId, handler);
+        if (userId == null) return;
+
+        boolean userBecameOffline = removeFromUser(userId, handler);
+
+        if (userBecameOffline) {
+            notifyPresenceChanged();
         }
     }
 
@@ -104,22 +114,42 @@ public class ClientConnectionManager {
         usersByConnection.clear();
     }
 
-    private void removeFromUser(
+    private boolean removeFromUser(
             long userId,
             ClientHandler handler
     ) {
         Set<ClientHandler> userConnections =
                 connectionsByUser.get(userId);
         if (userConnections == null) {
-            return;
+            return false;
         }
 
         userConnections.remove(handler);
-        if (userConnections.isEmpty()) {
-            connectionsByUser.remove(
-                    userId,
-                    userConnections
-            );
+
+        if (!userConnections.isEmpty()) return false;
+
+        boolean removed = connectionsByUser.remove(userId, userConnections);
+
+        return removed;
+    }
+
+    private void notifyPresenceChanged() {
+        Runnable listener = presenceChangedListener;
+
+        if (listener == null) return;
+
+        try {
+            listener.run();
+        } catch (RuntimeException exception) {
+            System.err.println("Không thể thông báo thay đổi online: " + exception.getMessage());
         }
+    }
+
+    public Set<Long> getOnlineUserIds() {
+        return Set.copyOf(connectionsByUser.keySet());
+    }
+
+    public void setPresenceChangedListener(Runnable presenceChangedListener) {
+        this.presenceChangedListener = presenceChangedListener;
     }
 }

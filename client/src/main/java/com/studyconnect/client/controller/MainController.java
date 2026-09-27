@@ -5,11 +5,7 @@ import com.studyconnect.client.service.CommentService;
 import com.studyconnect.client.service.PostService;
 import com.studyconnect.client.view.component.CommentDialog;
 import com.studyconnect.client.view.main.MainFrame;
-import com.studyconnect.common.dto.CommentDTO;
-import com.studyconnect.common.dto.CommentCreatedEventDTO;
-import com.studyconnect.common.dto.CreateCommentDTO;
-import com.studyconnect.common.dto.CreatePostDTO;
-import com.studyconnect.common.dto.PostDTO;
+import com.studyconnect.common.dto.*;
 import com.studyconnect.common.protocol.Response;
 import com.studyconnect.common.protocol.ServerEvent;
 import com.studyconnect.common.protocol.ServerEventType;
@@ -39,6 +35,10 @@ public class MainController {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Consumer<ServerEvent<String>> commentCreatedListener =
             this::handleCommentCreatedEvent;
+    private final Consumer<ServerEvent<String>> postCreatedListener =
+            this::handlePostCreatedEvent;
+    private final Consumer<ServerEvent<String>> onlineUsersListener =
+            this::handleOnlineUsersEvent;
     private volatile CommentDialog activeCommentDialog;
     private volatile long activeCommentPostId = -1L;
 
@@ -66,6 +66,17 @@ public class MainController {
                 ServerEventType.COMMENT_CREATED,
                 commentCreatedListener
         );
+
+        tcpClient.addServerEventListener(
+                ServerEventType.POST_CREATED,
+                postCreatedListener
+        );
+
+        tcpClient.addServerEventListener(
+                ServerEventType.ONLINE_USERS_UPDATED,
+                onlineUsersListener
+        );
+
         mainFrame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent event) {
@@ -98,10 +109,11 @@ public class MainController {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        tcpClient.removeServerEventListener(
-                ServerEventType.COMMENT_CREATED,
-                commentCreatedListener
-        );
+
+        tcpClient.removeServerEventListener(ServerEventType.COMMENT_CREATED, commentCreatedListener);
+        tcpClient.removeServerEventListener(ServerEventType.POST_CREATED, postCreatedListener);
+        tcpClient.removeServerEventListener(ServerEventType.ONLINE_USERS_UPDATED, onlineUsersListener);
+
         activeCommentDialog = null;
         activeCommentPostId = -1L;
     }
@@ -149,6 +161,33 @@ public class MainController {
                 && eventData.getComment() != null) {
             dialog.addOrUpdateComment(eventData.getComment());
         }
+    }
+
+    private void handlePostCreatedEvent(ServerEvent<String> event) {
+        if (closed.get() || event == null || event.getData().isBlank()) {
+            return;
+        }
+
+        final PostCreatedEventDTO eventData;
+
+        try {
+            eventData = JsonUtils.fromJson(event.getData(), PostCreatedEventDTO.class);
+        } catch (RuntimeException e) {
+            System.err.println("Không thể đọc sự kiện bài viết: " + e.getMessage());
+            return;
+        }
+
+        if (eventData == null || eventData.getPost() == null || eventData.getPost().getId() <= 0) {
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (closed.get() || !mainFrame.isDisplayable()) {
+                return;
+            }
+
+            mainFrame.addOrUpdatePost(eventData.getPost());
+        });
     }
 
     public void loadAllPosts(
@@ -269,6 +308,23 @@ public class MainController {
                 "tạo bình luận",
                 errorHandler
         );
+    }
+
+    private void handleOnlineUsersEvent(ServerEvent<String> event) {
+        if (closed.get() || event == null || event.getData().isBlank()) return;
+
+        try {
+            OnlineUsersEventDTO eventData = JsonUtils.fromJson(event.getData(), OnlineUsersEventDTO.class);
+            if (eventData == null) return;
+
+            SwingUtilities.invokeLater(() -> {
+                if (!closed.get() && mainFrame.isDisplayable()) {
+                    mainFrame.displayOnlineUsers(eventData.getUsers());
+                }
+            });
+        } catch (RuntimeException e) {
+            System.err.println("Không thể đọc sự kiện người dùng online: " + e.getMessage());
+        }
     }
 
     private <T> void executeListRequest(

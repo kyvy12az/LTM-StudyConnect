@@ -1,18 +1,13 @@
 package com.studyconnect.server.network.tcp;
 
-import com.studyconnect.common.dto.CommentCreatedEventDTO;
-import com.studyconnect.common.dto.CommentDTO;
-import com.studyconnect.common.dto.CreateCommentDTO;
-import com.studyconnect.common.dto.CreatePostDTO;
-import com.studyconnect.common.dto.LoginDTO;
-import com.studyconnect.common.dto.PostDTO;
-import com.studyconnect.common.dto.RegisterDTO;
+import com.studyconnect.common.dto.*;
 import com.studyconnect.common.protocol.Request;
 import com.studyconnect.common.protocol.Response;
 import com.studyconnect.common.protocol.ServerEvent;
 import com.studyconnect.common.protocol.ServerEventType;
 import com.studyconnect.common.protocol.StatusCode;
 import com.studyconnect.common.util.JsonUtils;
+import com.studyconnect.server.model.dao.UserDAO;
 import com.studyconnect.server.network.session.SessionManager;
 import com.studyconnect.server.service.AuthService;
 import com.studyconnect.server.service.CommentService;
@@ -29,6 +24,7 @@ public class RequestRouter {
     private final CommentService commentService;
     private final SessionManager sessionManager;
     private final ClientConnectionManager connectionManager;
+    private final UserDAO userDAO;
 
     public RequestRouter(
             ClientConnectionManager connectionManager
@@ -36,11 +32,32 @@ public class RequestRouter {
         this.authService = new AuthService();
         this.postService = new PostService();
         this.commentService = new CommentService();
+        this.userDAO = new UserDAO();
         this.sessionManager = SessionManager.getInstance();
         this.connectionManager = Objects.requireNonNull(
                 connectionManager,
                 "connectionManager"
         );
+        this.connectionManager.setPresenceChangedListener(this::pushOnlineUsers);
+    }
+
+    private void pushOnlineUsers() {
+        try {
+            List<UserDTO> onlineUsers = userDAO.findByIds(connectionManager.getOnlineUserIds());
+            long timestamp = System.currentTimeMillis();
+            OnlineUsersEventDTO eventData = new OnlineUsersEventDTO(onlineUsers, timestamp);
+            ServerEvent<String> event = new ServerEvent<>(ServerEventType.ONLINE_USERS_UPDATED, JsonUtils.toJson(eventData));
+            event.setTimestamp(timestamp);
+
+            connectionManager.broadcastAuthenticated(event, null);
+            System.out.println(
+                    "[PRESENCE] Đã push "
+                            + onlineUsers.size()
+                            + " người dùng online"
+            );
+        } catch (SQLException e) {
+            System.err.println("Không thể lấy danh sách online: " + e.getMessage());
+        }
     }
 
     public Response<String> route(
@@ -194,14 +211,30 @@ public class RequestRouter {
                 sourceConnection
         );
         requireData(request);
+
         CreatePostDTO createPostDTO = JsonUtils.fromJson(
                 request.getData(),
                 CreatePostDTO.class
         );
+
         PostDTO createdPost = postService.createPost(
                 authorId,
                 createPostDTO
         );
+
+        long timestamp = System.currentTimeMillis();
+
+        PostCreatedEventDTO eventData = new PostCreatedEventDTO(createdPost, timestamp);
+        ServerEvent<String> event = new ServerEvent<>(ServerEventType.POST_CREATED, JsonUtils.toJson(eventData));
+        event.setTimestamp(timestamp);
+
+        System.out.println(
+                "[SERVER] Chuẩn bị push POST_CREATED, postId="
+                        + createdPost.getId()
+        );
+
+        connectionManager.broadcastAuthenticated(event, sourceConnection);
+
         return Response.success(
                 request.getRequestId(),
                 "Đăng bài thành công",
