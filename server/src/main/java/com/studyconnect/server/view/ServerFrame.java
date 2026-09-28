@@ -186,9 +186,12 @@ public class ServerFrame extends JFrame {
 
         JLabel logo = new JLabel(
                 "<html><div style='text-align:center'>"
-                        + "StudyConnect<br>"
-                        + "Server"
+                        + "<span style='color:#073b70'>Study</span>"
+                        + "<span style='color:#009b83'>Connect</span>"
+                        + " Server"
                         + "</div></html>",
+
+
                 ServerTheme.imageIcon(
                         "/images/logo-final.png",
                         65,
@@ -294,37 +297,37 @@ public class ServerFrame extends JFrame {
                 false
         );
 
-        JLabel footer = new JLabel(
-                "v1.0.0  |  StudyConnect Server",
-                SwingConstants.CENTER
-        );
-
-        footer.setForeground(ServerTheme.MUTED);
-        footer.setFont(
-                ServerTheme.font(
-                        Font.PLAIN,
-                        9
-                )
-        );
-
-        footer.setBorder(
-                new EmptyBorder(
-                        0,
-                        4,
-                        12,
-                        4
-                )
-        );
+//        JLabel footer = new JLabel(
+//                "v1.0.0  |  StudyConnect Server",
+//                SwingConstants.CENTER
+//        );
+//
+//        footer.setForeground(ServerTheme.MUTED);
+//        footer.setFont(
+//                ServerTheme.font(
+//                        Font.PLAIN,
+//                        9
+//                )
+//        );
+//
+//        footer.setBorder(
+//                new EmptyBorder(
+//                        0,
+//                        4,
+//                        12,
+//                        4
+//                )
+//        );
 
         sidebar.add(
                 upper,
                 BorderLayout.NORTH
         );
 
-        sidebar.add(
-                footer,
-                BorderLayout.SOUTH
-        );
+//        sidebar.add(
+//                footer,
+//                BorderLayout.SOUTH
+//        );
 
         return sidebar;
     }
