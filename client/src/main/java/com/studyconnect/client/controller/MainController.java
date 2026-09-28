@@ -40,6 +40,8 @@ public class MainController {
             this::handleCommentCreatedEvent;
     private final Consumer<ServerEvent<String>> postCreatedListener =
             this::handlePostCreatedEvent;
+    private final Consumer<ServerEvent<String>> postLikeUpdatedListener =
+            this::handlePostLikeUpdatedEvent;
     private final Consumer<ServerEvent<String>> onlineUsersListener =
             this::handleOnlineUsersEvent;
     private volatile CommentDialog activeCommentDialog;
@@ -79,9 +81,16 @@ public class MainController {
         );
 
         tcpClient.addServerEventListener(
+                ServerEventType.POST_LIKE_UPDATED,
+                postLikeUpdatedListener
+        );
+
+        tcpClient.addServerEventListener(
                 ServerEventType.ONLINE_USERS_UPDATED,
                 onlineUsersListener
         );
+
+        mainFrame.setLikeListener(this::setPostLiked);
 
         mainFrame.addWindowListener(new WindowAdapter() {
             @Override
@@ -189,6 +198,7 @@ public class MainController {
 
         tcpClient.removeServerEventListener(ServerEventType.COMMENT_CREATED, commentCreatedListener);
         tcpClient.removeServerEventListener(ServerEventType.POST_CREATED, postCreatedListener);
+        tcpClient.removeServerEventListener(ServerEventType.POST_LIKE_UPDATED, postLikeUpdatedListener);
         tcpClient.removeServerEventListener(ServerEventType.ONLINE_USERS_UPDATED, onlineUsersListener);
 
         activeCommentDialog = null;
@@ -265,6 +275,69 @@ public class MainController {
 
             mainFrame.addOrUpdatePost(eventData.getPost());
         });
+    }
+
+    private void handlePostLikeUpdatedEvent(ServerEvent<String> event) {
+        if (closed.get()
+                || event == null
+                || event.getData() == null
+                || event.getData().isBlank()) {
+            return;
+        }
+
+        final PostLikeDTO eventData;
+        try {
+            eventData = JsonUtils.fromJson(event.getData(), PostLikeDTO.class);
+        } catch (RuntimeException exception) {
+            System.err.println(
+                    "Không thể đọc sự kiện Like bài viết: "
+                            + exception.getMessage()
+            );
+            return;
+        }
+
+        if (eventData == null || eventData.getPostId() <= 0) {
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (closed.get() || !mainFrame.isDisplayable()) {
+                return;
+            }
+            Boolean likedByCurrentUser = null;
+            if (CurrentUser.getUser() != null
+                    && CurrentUser.getUser().getId() == eventData.getUserId()) {
+                likedByCurrentUser = eventData.isLiked();
+            }
+            mainFrame.updatePostLikeState(
+                    eventData.getPostId(),
+                    eventData.getLikeCount(),
+                    likedByCurrentUser
+            );
+        });
+    }
+
+    public void setPostLiked(long postId, boolean liked) {
+        if (!validatePostId(postId)) {
+            mainFrame.setPostLikeLoading(postId, false);
+            return;
+        }
+
+        executeEntityRequest(
+                () -> liked
+                        ? postService.likePost(postId)
+                        : postService.unlikePost(postId),
+                result -> mainFrame.updatePostLikeState(
+                        result.getPostId(),
+                        result.getLikeCount(),
+                        result.isLiked()
+                ),
+                liked ? "thích bài viết" : "bỏ thích bài viết",
+                message -> {
+                    mainFrame.setPostLikeLoading(postId, false);
+                    showError(message);
+                }
+        );
     }
 
     public void loadAllPosts(

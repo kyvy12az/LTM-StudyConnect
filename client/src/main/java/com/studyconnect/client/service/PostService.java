@@ -3,6 +3,7 @@ package com.studyconnect.client.service;
 import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.common.dto.CreatePostDTO;
 import com.studyconnect.common.dto.PostDTO;
+import com.studyconnect.common.dto.PostLikeDTO;
 import com.studyconnect.common.protocol.ActionType;
 import com.studyconnect.common.protocol.Request;
 import com.studyconnect.common.protocol.Response;
@@ -112,6 +113,53 @@ public class PostService {
                 tcpClient.sendRequest(request);
 
         return convertPostResponse(rawResponse);
+    }
+
+    public Response<PostLikeDTO> likePost(long postId) throws IOException {
+        return updateLike(postId, true);
+    }
+
+    public Response<PostLikeDTO> unlikePost(long postId) throws IOException {
+        return updateLike(postId, false);
+    }
+
+    private Response<PostLikeDTO> updateLike(
+            long postId,
+            boolean liked
+    ) throws IOException {
+        requireLogin();
+        if (postId <= 0) {
+            throw new IllegalArgumentException("Mã bài viết không hợp lệ");
+        }
+
+        Request<String> request = new Request<>(
+                liked ? ActionType.LIKE_POST : ActionType.UNLIKE_POST,
+                authToken,
+                JsonUtils.toJson(postId)
+        );
+        Response<String> rawResponse = tcpClient.sendRequest(request);
+        if (rawResponse == null) {
+            return null;
+        }
+
+        PostLikeDTO result = null;
+        if (rawResponse.isSuccess()
+                && rawResponse.getData() != null
+                && !rawResponse.getData().isBlank()) {
+            result = JsonUtils.fromJson(
+                    rawResponse.getData(),
+                    PostLikeDTO.class
+            );
+        }
+
+        Response<PostLikeDTO> response = new Response<>(
+                rawResponse.getRequestId(),
+                rawResponse.getStatusCode(),
+                rawResponse.getMessage(),
+                result
+        );
+        response.setTimestamp(rawResponse.getTimestamp());
+        return response;
     }
 
     private Response<PostDTO> convertPostResponse(

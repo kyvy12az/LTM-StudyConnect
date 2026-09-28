@@ -16,6 +16,7 @@ public class PostDTO implements Serializable {
     private String subject;
     private long createdAt;
     private int likeCount;
+    private boolean likedByCurrentUser;
     private int commentCount;
     private List<PostAttachmentDTO> attachments = new ArrayList<>();
 
@@ -99,6 +100,14 @@ public class PostDTO implements Serializable {
         this.likeCount = likeCount;
     }
 
+    public boolean isLikedByCurrentUser() {
+        return likedByCurrentUser;
+    }
+
+    public void setLikedByCurrentUser(boolean likedByCurrentUser) {
+        this.likedByCurrentUser = likedByCurrentUser;
+    }
+
     public int getCommentCount() {
         return commentCount;
     }
@@ -137,6 +146,7 @@ public class PostDTO implements Serializable {
                 ", subject='" + subject + '\'' +
                 ", createdAt=" + createdAt +
                 ", likeCount=" + likeCount +
+                ", likedByCurrentUser=" + likedByCurrentUser +
                 ", commentCount=" + commentCount +
                 '}';
     }

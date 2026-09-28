@@ -117,6 +117,16 @@ public class RequestRouter {
                         request,
                         sourceConnection
                 );
+                case LIKE_POST -> handlePostLike(
+                        request,
+                        sourceConnection,
+                        true
+                );
+                case UNLIKE_POST -> handlePostLike(
+                        request,
+                        sourceConnection,
+                        false
+                );
                 case CREATE_COMMENT -> handleCreateComment(
                         request,
                         sourceConnection
@@ -276,21 +286,21 @@ public class RequestRouter {
             Request<String> request,
             ClientHandler sourceConnection
     ) throws SQLException {
-        requireUserId(request, sourceConnection);
+        long viewerId = requireUserId(request, sourceConnection);
         List<PostDTO> posts;
 
         if (request.getData() == null
                 || request.getData().isBlank()
                 || "null".equals(request.getData())) {
-            posts = postService.getAllPosts();
+            posts = postService.getAllPosts(viewerId);
         } else {
             String subject = JsonUtils.fromJson(
                     request.getData(),
                     String.class
             );
             posts = subject == null || subject.isBlank()
-                    ? postService.getAllPosts()
-                    : postService.getPostsBySubject(subject);
+                    ? postService.getAllPosts(viewerId)
+                    : postService.getPostsBySubject(subject, viewerId);
         }
 
         return Response.success(
@@ -304,7 +314,7 @@ public class RequestRouter {
             Request<String> request,
             ClientHandler sourceConnection
     ) throws SQLException {
-        requireUserId(request, sourceConnection);
+        long viewerId = requireUserId(request, sourceConnection);
         requireData(request);
         Long postId = JsonUtils.fromJson(
                 request.getData(),
@@ -315,11 +325,40 @@ public class RequestRouter {
                     "Mã bài viết không hợp lệ"
             );
         }
-        PostDTO post = postService.getPostById(postId);
+        PostDTO post = postService.getPostById(postId, viewerId);
         return Response.success(
                 request.getRequestId(),
                 "Lấy chi tiết bài viết thành công",
                 JsonUtils.toJson(post)
+        );
+    }
+
+    private Response<String> handlePostLike(
+            Request<String> request,
+            ClientHandler sourceConnection,
+            boolean liked
+    ) throws SQLException {
+        long userId = requireUserId(request, sourceConnection);
+        requireData(request);
+        Long postId = JsonUtils.fromJson(request.getData(), Long.class);
+        if (postId == null || postId <= 0) {
+            throw new IllegalArgumentException("Mã bài viết không hợp lệ");
+        }
+
+        PostLikeDTO result = liked
+                ? postService.likePost(userId, postId)
+                : postService.unlikePost(userId, postId);
+        ServerEvent<String> event = new ServerEvent<>(
+                ServerEventType.POST_LIKE_UPDATED,
+                JsonUtils.toJson(result)
+        );
+        event.setTimestamp(result.getUpdatedAt());
+        connectionManager.broadcastAuthenticated(event, sourceConnection);
+
+        return Response.success(
+                request.getRequestId(),
+                liked ? "Đã thích bài viết" : "Đã bỏ thích bài viết",
+                JsonUtils.toJson(result)
         );
     }
 

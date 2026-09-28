@@ -3,6 +3,7 @@ package com.studyconnect.server.service;
 import com.studyconnect.common.dto.CreatePostDTO;
 import com.studyconnect.common.dto.PostAttachmentDTO;
 import com.studyconnect.common.dto.PostDTO;
+import com.studyconnect.common.dto.PostLikeDTO;
 import com.studyconnect.server.model.dao.PostAttachmentDAO;
 import com.studyconnect.server.model.dao.PostDAO;
 
@@ -94,25 +95,58 @@ public class PostService {
     }
 
     public List<PostDTO> getAllPosts() throws SQLException {
-        return postDAO.findAll();
+        return getAllPosts(0L);
+    }
+
+    public List<PostDTO> getAllPosts(long viewerId) throws SQLException {
+        return postDAO.findAll(viewerId);
     }
 
     public PostDTO getPostById(long postId) throws SQLException {
+        return getPostById(postId, 0L);
+    }
+
+    public PostDTO getPostById(long postId, long viewerId) throws SQLException {
         validatePostId(postId);
 
-        return postDAO.findById(postId).orElseThrow(() -> new NoSuchElementException("Không tìm thấy bài viết."));
+        return postDAO.findById(postId, viewerId).orElseThrow(() -> new NoSuchElementException("Không tìm thấy bài viết."));
     }
 
     public List<PostDTO> getPostsBySubject(String subject) throws SQLException {
+        return getPostsBySubject(subject, 0L);
+    }
+
+    public List<PostDTO> getPostsBySubject(String subject, long viewerId) throws SQLException {
         String normalizedSubject = normalize(subject);
 
         if (normalizedSubject.isEmpty() || normalizedSubject.equalsIgnoreCase("Tất cả")) {
-            return postDAO.findAll();
+            return postDAO.findAll(viewerId);
         }
 
         validateSubject(normalizedSubject);
 
-        return postDAO.findBySubject(normalizedSubject);
+        return postDAO.findBySubject(normalizedSubject, viewerId);
+    }
+
+    public PostLikeDTO likePost(long userId, long postId) throws SQLException {
+        return setPostLiked(userId, postId, true);
+    }
+
+    public PostLikeDTO unlikePost(long userId, long postId) throws SQLException {
+        return setPostLiked(userId, postId, false);
+    }
+
+    private PostLikeDTO setPostLiked(
+            long userId,
+            long postId,
+            boolean liked
+    ) throws SQLException {
+        validateAuthorId(userId);
+        validatePostId(postId);
+        if (!postDAO.exitsById(postId)) {
+            throw new NoSuchElementException("Không tìm thấy bài viết.");
+        }
+        return postDAO.setLiked(postId, userId, liked);
     }
 
     public boolean postExists(long postId) throws SQLException {

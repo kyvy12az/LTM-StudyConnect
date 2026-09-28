@@ -2,6 +2,7 @@ package com.studyconnect.server.model.dao;
 
 import com.studyconnect.common.dto.CreatePostDTO;
 import com.studyconnect.common.dto.PostDTO;
+import com.studyconnect.common.dto.PostLikeDTO;
 import com.studyconnect.server.model.database.DatabaseConnection;
 
 import java.sql.*;
@@ -20,7 +21,17 @@ public class PostDAO {
                 p.content,
                 p.subject,
                 p.created_at,
-                0 AS like_count,
+                (
+                    SELECT COUNT(*)
+                    FROM post_likes pl
+                    WHERE pl.post_id = p.id
+                ) AS like_count,
+                EXISTS (
+                    SELECT 1
+                    FROM post_likes current_like
+                    WHERE current_like.post_id = p.id
+                      AND current_like.user_id = ?
+                ) AS liked_by_current_user,
                 (
                     SELECT COUNT(*)
                     FROM comments c
@@ -80,7 +91,7 @@ public class PostDAO {
 
                 long postId = generatedKeys.getLong(1);
 
-                return findById(postId)
+                return findById(postId, authorId)
                         .orElseThrow(() ->
                                 new SQLException("Không tìm thấy bài viết vừa tạo.")
                         );
@@ -89,6 +100,10 @@ public class PostDAO {
     }
 
     public Optional<PostDTO> findById(long postId) throws SQLException {
+        return findById(postId, 0L);
+    }
+
+    public Optional<PostDTO> findById(long postId, long viewerId) throws SQLException {
         String sql = SELECT_POST_FIELDS + """
                 WHERE p.id = ?
                 """;
@@ -97,7 +112,8 @@ public class PostDAO {
                 Connection connection = DatabaseConnection.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql);
         ) {
-            statement.setLong(1, postId);
+            statement.setLong(1, viewerId);
+            statement.setLong(2, postId);
 
             try (ResultSet result = statement.executeQuery()) {
                 if (result.next()) {
@@ -109,6 +125,10 @@ public class PostDAO {
     }
 
     public List<PostDTO> findAll() throws SQLException {
+        return findAll(0L);
+    }
+
+    public List<PostDTO> findAll(long viewerId) throws SQLException {
         String sql = SELECT_POST_FIELDS + """
                 ORDER BY p.created_at DESC, p.id DESC
                 """;
@@ -117,11 +137,13 @@ public class PostDAO {
 
         try (
                 Connection connection = DatabaseConnection.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql);
-                ResultSet result = statement.executeQuery()
+                PreparedStatement statement = connection.prepareStatement(sql)
         ) {
-            while (result.next()) {
-                posts.add(mapPost(result));
+            statement.setLong(1, viewerId);
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    posts.add(mapPost(result));
+                }
             }
         }
 
@@ -149,6 +171,10 @@ public class PostDAO {
     }
 
     public List<PostDTO> findBySubject(String subject) throws SQLException {
+        return findBySubject(subject, 0L);
+    }
+
+    public List<PostDTO> findBySubject(String subject, long viewerId) throws SQLException {
         String sql = SELECT_POST_FIELDS + """
                 WHERE p.subject = ?
                 ORDER BY p.created_at DESC, p.id DESC
@@ -160,7 +186,8 @@ public class PostDAO {
                 Connection connection = DatabaseConnection.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql);
         ) {
-            statement.setString(1, subject);
+            statement.setLong(1, viewerId);
+            statement.setString(2, subject);
 
             try (ResultSet result = statement.executeQuery()) {
                 while (result.next()) {
@@ -170,6 +197,47 @@ public class PostDAO {
         }
 
         return posts;
+    }
+
+    public PostLikeDTO setLiked(long postId, long userId, boolean liked)
+            throws SQLException {
+        String mutationSql = liked
+                ? "INSERT IGNORE INTO post_likes (post_id, user_id) VALUES (?, ?)"
+                : "DELETE FROM post_likes WHERE post_id = ? AND user_id = ?";
+        String countSql = "SELECT COUNT(*) FROM post_likes WHERE post_id = ?";
+
+        try (Connection connection = DatabaseConnection.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement statement = connection.prepareStatement(mutationSql)) {
+                    statement.setLong(1, postId);
+                    statement.setLong(2, userId);
+                    statement.executeUpdate();
+                }
+
+                int likeCount;
+                try (PreparedStatement statement = connection.prepareStatement(countSql)) {
+                    statement.setLong(1, postId);
+                    try (ResultSet result = statement.executeQuery()) {
+                        likeCount = result.next() ? result.getInt(1) : 0;
+                    }
+                }
+
+                connection.commit();
+                return new PostLikeDTO(
+                        postId,
+                        userId,
+                        liked,
+                        likeCount,
+                        System.currentTimeMillis()
+                );
+            } catch (SQLException exception) {
+                connection.rollback();
+                throw exception;
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        }
     }
 
     private PostDTO mapPost(ResultSet result) throws SQLException {
@@ -187,6 +255,10 @@ public class PostDAO {
                 createdAt != null ? createdAt.getTime() : 0,
                 result.getInt("like_count"),
                 result.getInt("comment_count")
+        );
+
+        post.setLikedByCurrentUser(
+                result.getBoolean("liked_by_current_user")
         );
 
         post.setAttachments(attachmentDAO.findByPostId(post.getId()));

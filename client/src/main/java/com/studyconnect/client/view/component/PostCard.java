@@ -21,7 +21,10 @@ public class PostCard extends MainTheme.RoundedPanel {
     private static final int MAX_IMAGE_HEIGHT = 420;
 
     private final long postId;
+    private final JButton likeButton;
     private final JButton commentButton;
+    private int likeCount;
+    private boolean liked;
     private int commentCount;
 
     public PostCard(
@@ -36,12 +39,17 @@ public class PostCard extends MainTheme.RoundedPanel {
             FileTransferClient fileTransferClient,
             String authToken,
             int likes,
+            boolean likedByCurrentUser,
             int comments
     ) {
         super(18);
 
         this.postId = postId;
+        this.likeCount = Math.max(0, likes);
+        this.liked = likedByCurrentUser;
         this.commentCount = Math.max(0, comments);
+        likeButton = action(MainTheme.IconType.LIKE, "");
+        updateLikeButton();
         commentButton = action(
                 MainTheme.IconType.COMMENT,
                 "Bình luận (" + commentCount + ")"
@@ -82,7 +90,7 @@ public class PostCard extends MainTheme.RoundedPanel {
                 fileTransferClient,
                 authToken
         );
-        add(createActions(likes));
+        add(createActions());
     }
 
     private void addAttachments(
@@ -293,7 +301,7 @@ public class PostCard extends MainTheme.RoundedPanel {
         return header;
     }
 
-    private JComponent createActions(int likes) {
+    private JComponent createActions() {
         JPanel actions = new JPanel(new BorderLayout());
         actions.setOpaque(false);
         actions.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -301,10 +309,7 @@ public class PostCard extends MainTheme.RoundedPanel {
 
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         left.setOpaque(false);
-        left.add(action(
-                MainTheme.IconType.LIKE,
-                String.valueOf(Math.max(0, likes))
-        ));
+        left.add(likeButton);
         left.add(commentButton);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -380,6 +385,45 @@ public class PostCard extends MainTheme.RoundedPanel {
         if (listener != null) {
             commentButton.addActionListener(listener);
         }
+    }
+
+    public void addLikeListener(ActionListener listener) {
+        if (listener != null) {
+            likeButton.addActionListener(listener);
+        }
+    }
+
+    public boolean isLiked() {
+        return liked;
+    }
+
+    public void setLikeState(boolean liked, int likeCount) {
+        this.liked = liked;
+        this.likeCount = Math.max(0, likeCount);
+        updateLikeButton();
+    }
+
+    public void setLikeCount(int likeCount) {
+        this.likeCount = Math.max(0, likeCount);
+        updateLikeButton();
+    }
+
+    public void setLikeLoading(boolean loading) {
+        likeButton.setEnabled(!loading);
+        if (loading) {
+            likeButton.setText("Đang cập nhật...");
+        } else {
+            updateLikeButton();
+        }
+    }
+
+    private void updateLikeButton() {
+        Color color = liked ? new Color(24, 119, 242) : MainTheme.NAVY;
+        likeButton.setText("Thích (" + likeCount + ")");
+        likeButton.setForeground(color);
+        likeButton.setIcon(
+                MainTheme.svgIcon(MainTheme.IconType.LIKE, 18, color)
+        );
     }
 
     @Deprecated

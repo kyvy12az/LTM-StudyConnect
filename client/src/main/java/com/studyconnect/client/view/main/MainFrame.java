@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.awt.event.ActionListener;
 
 public class MainFrame extends JFrame {
@@ -63,6 +64,7 @@ public class MainFrame extends JFrame {
     private String selectedSubject;
 
     private Consumer<PostDTO> commentListener;
+    private BiConsumer<Long, Boolean> likeListener;
 
     // file
     private static final int MAX_ATTACHMENTS = 5;
@@ -1466,12 +1468,20 @@ public class MainFrame extends JFrame {
                 fileTransferClient,
                 CurrentUser.getToken(),
                 Math.max(0, post.getLikeCount()),
+                post.isLikedByCurrentUser(),
                 Math.max(0, post.getCommentCount())
         );
 
         card.addCommentListener(event -> {
             if (commentListener != null) {
                 commentListener.accept(post);
+            }
+        });
+
+        card.addLikeListener(event -> {
+            if (likeListener != null) {
+                card.setLikeLoading(true);
+                likeListener.accept(post.getId(), !card.isLiked());
             }
         });
 
@@ -1552,6 +1562,40 @@ public class MainFrame extends JFrame {
             Consumer<PostDTO> commentListener
     ) {
         this.commentListener = commentListener;
+    }
+
+    public void setLikeListener(
+            BiConsumer<Long, Boolean> likeListener
+    ) {
+        this.likeListener = likeListener;
+    }
+
+    public void updatePostLikeState(
+            long postId,
+            int likeCount,
+            Boolean likedByCurrentUser
+    ) {
+        runOnEdt(() -> {
+            PostCard card = postCardsById.get(postId);
+            if (card == null) {
+                return;
+            }
+            if (likedByCurrentUser == null) {
+                card.setLikeCount(likeCount);
+            } else {
+                card.setLikeState(likedByCurrentUser, likeCount);
+            }
+            card.setLikeLoading(false);
+        });
+    }
+
+    public void setPostLikeLoading(long postId, boolean loading) {
+        runOnEdt(() -> {
+            PostCard card = postCardsById.get(postId);
+            if (card != null) {
+                card.setLikeLoading(loading);
+            }
+        });
     }
 
     public void updatePostCommentCount(

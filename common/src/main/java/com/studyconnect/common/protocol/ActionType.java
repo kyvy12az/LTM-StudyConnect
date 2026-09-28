@@ -10,6 +10,8 @@ public enum ActionType {
     CREATE_POST,
     GET_POSTS,
     GET_POST_DETAIL,
+    LIKE_POST,
+    UNLIKE_POST,
 
     CREATE_COMMENT,
     GET_COMMENTS,
