@@ -119,19 +119,15 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE TABLE IF NOT EXISTS messages (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
+    client_message_id VARCHAR(36) NOT NULL,
     sender_id BIGINT UNSIGNED NOT NULL,
     receiver_id BIGINT UNSIGNED NOT NULL,
-
-    message_type ENUM('TEXT', 'FILE', 'SYSTEM')
-        NOT NULL DEFAULT 'TEXT',
-
-    content TEXT,
-    file_name VARCHAR(255),
-    file_url VARCHAR(500),
-
-    is_read BOOLEAN NOT NULL DEFAULT FALSE,
-    sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    read_at DATETIME,
+    content TEXT NOT NULL,
+    delivery_mode VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    delivered_at TIMESTAMP NULL,
+    read_at TIMESTAMP NULL,
 
     CONSTRAINT fk_messages_sender
         FOREIGN KEY (sender_id)
@@ -143,15 +139,16 @@ CREATE TABLE IF NOT EXISTS messages (
         REFERENCES users(id)
         ON DELETE CASCADE,
 
-    INDEX idx_messages_sender (sender_id),
-    INDEX idx_messages_receiver (receiver_id),
+    CONSTRAINT uk_messages_client_message_id UNIQUE (client_message_id),
     INDEX idx_messages_conversation (
         sender_id,
         receiver_id,
-        sent_at
+        created_at
     ),
-    INDEX idx_messages_sent_at (sent_at)
-) ENGINE = InnoDB;
+    INDEX idx_messages_receiver_status (receiver_id, status)
+) ENGINE = InnoDB
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
 
 -- ==============================
 -- BẢNG ATTACHMENT CHO BÀI ĐĂNG

@@ -8,9 +8,11 @@ import com.studyconnect.common.protocol.ServerEventType;
 import com.studyconnect.common.protocol.StatusCode;
 import com.studyconnect.common.util.JsonUtils;
 import com.studyconnect.server.model.dao.UserDAO;
+import com.studyconnect.server.network.peer.PeerRegistry;
 import com.studyconnect.server.network.session.SessionManager;
 import com.studyconnect.server.service.AuthService;
 import com.studyconnect.server.service.CommentService;
+import com.studyconnect.server.service.MessageService;
 import com.studyconnect.server.service.PostService;
 
 import java.sql.SQLException;
@@ -23,9 +25,11 @@ public class RequestRouter {
     private final AuthService authService;
     private final PostService postService;
     private final CommentService commentService;
+    private final MessageService messageService;
     private final SessionManager sessionManager;
     private final ClientConnectionManager connectionManager;
     private final UserDAO userDAO;
+    private final PeerRegistry peerRegistry;
     private final Consumer<PostDTO> postCreatedListener;
 
     public RequestRouter(
@@ -41,7 +45,9 @@ public class RequestRouter {
         this.authService = new AuthService();
         this.postService = new PostService();
         this.commentService = new CommentService();
+        this.messageService = new MessageService();
         this.userDAO = new UserDAO();
+        this.peerRegistry = new PeerRegistry();
         this.sessionManager = SessionManager.getInstance();
         this.connectionManager = Objects.requireNonNull(
                 connectionManager,
@@ -49,6 +55,7 @@ public class RequestRouter {
         );
         this.postCreatedListener = postCreatedListener;
         this.connectionManager.setPresenceChangedListener(this::pushOnlineUsers);
+        this.connectionManager.setUserOfflineListener(this::unregisterOfflinePeer);
     }
 
     private void pushOnlineUsers() {
@@ -118,6 +125,14 @@ public class RequestRouter {
                         request,
                         sourceConnection
                 );
+                case REGISTER_PEER -> handleRegisterPeer(request, sourceConnection);
+                case UNREGISTER_PEER -> handleUnregisterPeer(request, sourceConnection);
+                case REQUEST_PEER_INFO -> handleRequestPeerInfo(request, sourceConnection);
+                case SYNC_MESSAGE -> handleSyncMessage(request, sourceConnection);
+                case SEND_MESSAGE -> handleSendMessage(request, sourceConnection);
+                case GET_MESSAGES, GET_MESSAGE_HISTORY -> handleGetMessages(request, sourceConnection);
+                case GET_CONVERSATIONS -> handleGetConversations(request, sourceConnection);
+                case MARK_MESSAGES_READ, MARK_MESSAGE_READ -> handleMarkMessagesRead(request, sourceConnection);
                 default -> Response.error(
                         request.getRequestId(),
                         StatusCode.BAD_REQUEST,
@@ -202,7 +217,8 @@ public class RequestRouter {
             Request<String> request,
             ClientHandler sourceConnection
     ) {
-        requireUserId(request, sourceConnection);
+        long userId = requireUserId(request, sourceConnection);
+        pushPeerStatus(peerRegistry.unregister(userId));
         sessionManager.removeSession(request.getToken());
         connectionManager.unauthenticate(sourceConnection);
         return Response.success(
@@ -378,6 +394,206 @@ public class RequestRouter {
                 "Lấy danh sách bình luận thành công",
                 JsonUtils.toJson(comments)
         );
+    }
+
+    private Response<String> handleSendMessage(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) throws SQLException {
+        long senderId = requireUserId(request, sourceConnection);
+        requireData(request);
+        SendMessageDTO command = JsonUtils.fromJson(
+                request.getData(), SendMessageDTO.class);
+        MessageDTO message = messageService.relayMessage(senderId, command);
+
+        ServerEvent<String> event = new ServerEvent<>(
+                ServerEventType.MESSAGE_RECEIVED,
+                JsonUtils.toJson(message)
+        );
+        event.setTimestamp(message.getCreatedAt());
+        boolean delivered = connectionManager.sendToUser(message.getReceiverId(), event);
+        if (delivered && message.getStatus() != MessageStatus.READ) {
+            message = messageService.markDelivered(message.getClientMessageId());
+            pushMessageStatus(senderId, message);
+        }
+
+        return Response.success(
+                request.getRequestId(),
+                "Gửi tin nhắn thành công",
+                JsonUtils.toJson(message)
+        );
+    }
+
+    private Response<String> handleSyncMessage(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) throws SQLException {
+        long senderId = requireUserId(request, sourceConnection);
+        requireData(request);
+        SendMessageDTO command = JsonUtils.fromJson(
+                request.getData(), SendMessageDTO.class);
+        MessageDTO message = messageService.syncP2PMessage(senderId, command);
+
+        ServerEvent<String> event = new ServerEvent<>(
+                ServerEventType.MESSAGE_RECEIVED,
+                JsonUtils.toJson(message)
+        );
+        event.setTimestamp(message.getCreatedAt());
+        connectionManager.sendToUser(message.getReceiverId(), event);
+        pushMessageStatus(senderId, message);
+
+        return Response.success(
+                request.getRequestId(),
+                "Đồng bộ tin nhắn P2P thành công",
+                JsonUtils.toJson(message)
+        );
+    }
+
+    private Response<String> handleRegisterPeer(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) {
+        long userId = requireUserId(request, sourceConnection);
+        requireData(request);
+        RegisterPeerDTO command = JsonUtils.fromJson(
+                request.getData(), RegisterPeerDTO.class);
+        if (command == null) {
+            throw new IllegalArgumentException("Thông tin peer không hợp lệ");
+        }
+        PeerInfoDTO peer = peerRegistry.register(
+                userId, sourceConnection.getRemoteHost(), command.getPort());
+        pushPeerStatus(peerRegistry.publicStatus(userId));
+        return Response.success(
+                request.getRequestId(),
+                "Đăng ký peer thành công",
+                JsonUtils.toJson(peer)
+        );
+    }
+
+    private Response<String> handleUnregisterPeer(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) {
+        long userId = requireUserId(request, sourceConnection);
+        PeerInfoDTO offline = peerRegistry.unregister(userId);
+        pushPeerStatus(offline);
+        return Response.success(
+                request.getRequestId(),
+                "Hủy đăng ký peer thành công",
+                JsonUtils.toJson(offline)
+        );
+    }
+
+    private Response<String> handleRequestPeerInfo(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) {
+        long requesterId = requireUserId(request, sourceConnection);
+        requireData(request);
+        Long targetUserId = JsonUtils.fromJson(request.getData(), Long.class);
+        if (targetUserId == null || targetUserId <= 0 || targetUserId == requesterId) {
+            throw new IllegalArgumentException("Người nhận peer không hợp lệ");
+        }
+        PeerInfoDTO peer = peerRegistry.find(targetUserId)
+                .filter(value -> connectionManager.getOnlineUserIds().contains(targetUserId))
+                .orElse(new PeerInfoDTO(
+                        targetUserId, null, 0, false,
+                        System.currentTimeMillis(), null));
+        return Response.success(
+                request.getRequestId(),
+                peer.isAvailable() ? "Đã tìm thấy peer" : "Peer hiện không khả dụng",
+                JsonUtils.toJson(peer)
+        );
+    }
+
+    private Response<String> handleGetMessages(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) throws SQLException {
+        long currentUserId = requireUserId(request, sourceConnection);
+        requireData(request);
+        GetMessagesDTO query = JsonUtils.fromJson(
+                request.getData(), GetMessagesDTO.class);
+        List<MessageDTO> messages = messageService.getMessages(currentUserId, query);
+        for (int index = 0; index < messages.size(); index++) {
+            MessageDTO message = messages.get(index);
+            if (message.getReceiverId() == currentUserId
+                    && message.getStatus() == MessageStatus.SENT) {
+                MessageDTO delivered = messageService.markDelivered(
+                        message.getClientMessageId());
+                messages.set(index, delivered);
+                pushMessageStatus(delivered.getSenderId(), delivered);
+            }
+        }
+        return Response.success(
+                request.getRequestId(),
+                "Lấy lịch sử tin nhắn thành công",
+                JsonUtils.toJson(messages)
+        );
+    }
+
+    private Response<String> handleGetConversations(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) throws SQLException {
+        long currentUserId = requireUserId(request, sourceConnection);
+        List<ConversationDTO> conversations = messageService.getConversations(
+                currentUserId, connectionManager.getOnlineUserIds());
+        return Response.success(
+                request.getRequestId(),
+                "Lấy danh sách hội thoại thành công",
+                JsonUtils.toJson(conversations)
+        );
+    }
+
+    private Response<String> handleMarkMessagesRead(
+            Request<String> request,
+            ClientHandler sourceConnection
+    ) throws SQLException {
+        long currentUserId = requireUserId(request, sourceConnection);
+        requireData(request);
+        MarkMessagesReadDTO command = JsonUtils.fromJson(
+                request.getData(), MarkMessagesReadDTO.class);
+        if (command == null) {
+            throw new IllegalArgumentException("Dữ liệu đánh dấu đã đọc không hợp lệ");
+        }
+        MessageReadEventDTO receipt = messageService.markMessagesRead(
+                currentUserId, command.getOtherUserId());
+        if (!receipt.getMessageIds().isEmpty()) {
+            ServerEvent<String> event = new ServerEvent<>(
+                    ServerEventType.MESSAGE_READ,
+                    JsonUtils.toJson(receipt)
+            );
+            event.setTimestamp(receipt.getReadAt());
+            connectionManager.sendToUser(command.getOtherUserId(), event);
+        }
+        return Response.success(
+                request.getRequestId(),
+                "Đã đánh dấu tin nhắn là đã đọc",
+                JsonUtils.toJson(receipt)
+        );
+    }
+
+    private void pushMessageStatus(long senderId, MessageDTO message) {
+        ServerEvent<String> event = new ServerEvent<>(
+                ServerEventType.MESSAGE_STATUS_UPDATED,
+                JsonUtils.toJson(message)
+        );
+        event.setTimestamp(System.currentTimeMillis());
+        connectionManager.sendToUser(senderId, event);
+    }
+
+    private void pushPeerStatus(PeerInfoDTO peer) {
+        ServerEvent<String> event = new ServerEvent<>(
+                ServerEventType.PEER_STATUS_CHANGED,
+                JsonUtils.toJson(peer)
+        );
+        event.setTimestamp(System.currentTimeMillis());
+        connectionManager.broadcastAuthenticated(event, null);
+    }
+
+    private void unregisterOfflinePeer(long userId) {
+        pushPeerStatus(peerRegistry.unregister(userId));
     }
 
     private long requireUserId(

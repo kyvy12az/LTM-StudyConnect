@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.LongConsumer;
 
 public class ClientConnectionManager {
     private final Set<ClientHandler> connections =
@@ -19,6 +20,7 @@ public class ClientConnectionManager {
             usersByConnection = new ConcurrentHashMap<>();
 
     private volatile Runnable presenceChangedListener;
+    private volatile LongConsumer userOfflineListener;
 
     public void register(ClientHandler handler) {
         if (handler != null) {
@@ -63,6 +65,14 @@ public class ClientConnectionManager {
         boolean userBecameOffline = removeFromUser(userId, handler);
 
         if (userBecameOffline) {
+            LongConsumer offlineListener = userOfflineListener;
+            if (offlineListener != null) {
+                try {
+                    offlineListener.accept(userId);
+                } catch (RuntimeException exception) {
+                    System.err.println("Không thể thông báo peer offline: " + exception.getMessage());
+                }
+            }
             notifyPresenceChanged();
         }
     }
@@ -102,6 +112,35 @@ public class ClientConnectionManager {
                 unregister(handler);
             }
         }
+    }
+
+    public boolean sendToUser(long userId, ServerEvent<String> event) {
+        if (userId <= 0 || event == null) {
+            return false;
+        }
+        Set<ClientHandler> userConnections = connectionsByUser.get(userId);
+        if (userConnections == null || userConnections.isEmpty()) {
+            return false;
+        }
+        boolean delivered = false;
+        for (ClientHandler handler : new ArrayList<>(userConnections)) {
+            if (!handler.isOpen()) {
+                unregister(handler);
+                continue;
+            }
+            try {
+                handler.sendEvent(event);
+                delivered = true;
+            } catch (IOException exception) {
+                System.err.println(
+                        "Không thể gửi event riêng tới user " + userId
+                                + ": " + exception.getMessage()
+                );
+                handler.close();
+                unregister(handler);
+            }
+        }
+        return delivered;
     }
 
     public int getConnectionCount() {
@@ -171,6 +210,10 @@ public class ClientConnectionManager {
 
     public void setPresenceChangedListener(Runnable presenceChangedListener) {
         this.presenceChangedListener = presenceChangedListener;
+    }
+
+    public void setUserOfflineListener(LongConsumer userOfflineListener) {
+        this.userOfflineListener = userOfflineListener;
     }
 
     public record ConnectionSnapshot(

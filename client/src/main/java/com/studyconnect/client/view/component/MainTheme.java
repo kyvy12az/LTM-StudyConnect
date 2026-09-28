@@ -25,7 +25,9 @@ public final class MainTheme {
     public static final Color DANGER = new Color(239, 68, 68);
 
     private MainTheme() { }
-    public static Font font(int style, int size) { return new Font("Segoe UI", style, size); }
+    public static Font font(int style, int size) {
+        return new Font("Segoe UI", style, size);
+    }
 
     public enum IconType {
 

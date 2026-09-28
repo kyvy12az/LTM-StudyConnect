@@ -3,6 +3,7 @@ package com.studyconnect.client.view.main;
 import com.studyconnect.client.model.CurrentUser;
 import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.view.component.*;
+import com.studyconnect.client.view.message.MessagesPanel;
 import com.studyconnect.common.dto.CreatePostDTO;
 import com.studyconnect.common.dto.PostAttachmentDTO;
 import com.studyconnect.common.dto.PostDTO;
@@ -55,6 +56,9 @@ public class MainFrame extends JFrame {
             new HashMap<>();
 
     private final JPanel onlineUsersPanel = new JPanel();
+    private final JPanel messagesHost = new JPanel(new BorderLayout());
+    private SidebarMenuButton messagesMenuButton;
+    private Runnable messagesPageListener;
 
     private String selectedSubject;
 
@@ -103,7 +107,13 @@ public class MainFrame extends JFrame {
         application.add(createTopBar(), BorderLayout.NORTH);
         contentDeck.setOpaque(false);
         contentDeck.add(createFeedPage(), "feed");
-        contentDeck.add(createPlaceholder("Tin nhắn", "Các cuộc trò chuyện sẽ hiển thị tại đây.", MainTheme.IconType.CHAT), "messages");
+        messagesHost.setOpaque(false);
+        messagesHost.add(createPlaceholder(
+                "Tin nhắn",
+                "Đang khởi tạo chức năng nhắn tin...",
+                MainTheme.IconType.CHAT
+        ), BorderLayout.CENTER);
+        contentDeck.add(messagesHost, "messages");
         contentDeck.add(createPlaceholder("Nhóm học tập", "Cùng tạo và tham gia các nhóm học tập.", MainTheme.IconType.GROUP), "groups");
         contentDeck.add(createPlaceholder("Tài liệu", "Kho tài liệu học tập của bạn.", MainTheme.IconType.DOCUMENT), "documents");
         contentDeck.add(createPlaceholder("Hồ sơ", "Thông tin cá nhân và hoạt động của bạn.", MainTheme.IconType.USER), "profile");
@@ -124,7 +134,10 @@ public class MainFrame extends JFrame {
         upper.add(createBrand());
         upper.add(Box.createVerticalStrut(38));
         addMenu(upper, "Bảng tin", MainTheme.IconType.HOME, null, "feed", true);
-        addMenu(upper, "Tin nhắn", MainTheme.IconType.CHAT, "3", "messages", false);
+        messagesMenuButton = addMenu(
+                upper, "Tin nhắn", MainTheme.IconType.CHAT,
+                null, "messages", false
+        );
         addMenu(upper, "Nhóm học tập", MainTheme.IconType.GROUP, null, "groups", false);
         addMenu(upper, "Tài liệu", MainTheme.IconType.DOCUMENT, null, "documents", false);
         addMenu(upper, "Hồ sơ", MainTheme.IconType.USER, null, "profile", false);
@@ -423,7 +436,7 @@ public class MainFrame extends JFrame {
         );
     }
 
-    private void addMenu(JPanel parent, String label, MainTheme.IconType icon, String badge, String card, boolean active) {
+    private SidebarMenuButton addMenu(JPanel parent, String label, MainTheme.IconType icon, String badge, String card, boolean active) {
         SidebarMenuButton button = new SidebarMenuButton(label, icon, badge);
         button.setActive(active);
         // Keep the same center alignment as the brand so BoxLayout grants the
@@ -432,8 +445,12 @@ public class MainFrame extends JFrame {
         button.addActionListener(event -> {
             for (SidebarMenuButton item : menuButtons) item.setActive(item == button);
             contentLayout.show(contentDeck, card);
+            if ("messages".equals(card) && messagesPageListener != null) {
+                messagesPageListener.run();
+            }
         });
         menuButtons.add(button); parent.add(button); parent.add(Box.createVerticalStrut(5));
+        return button;
     }
 
     private JComponent createTopBar() {
@@ -923,9 +940,34 @@ public class MainFrame extends JFrame {
         right.setBorder(new EmptyBorder(0, 0, 15, 4));
         right.add(createProfileCard()); right.add(Box.createVerticalStrut(12));
         right.add(createOnlineCard()); right.add(Box.createVerticalStrut(12));
-        right.add(createScheduleCard()); right.add(Box.createVerticalStrut(12));
-        right.add(new MiniChatPanel());
+        right.add(createScheduleCard());
         return right;
+    }
+
+    public void setMessagesPanel(MessagesPanel panel) {
+        if (panel == null) {
+            throw new IllegalArgumentException("MessagesPanel không được null");
+        }
+        runOnEdt(() -> {
+            messagesHost.removeAll();
+            messagesHost.add(panel, BorderLayout.CENTER);
+            messagesHost.revalidate();
+            messagesHost.repaint();
+        });
+    }
+
+    public void setMessagesPageListener(Runnable listener) {
+        this.messagesPageListener = listener;
+    }
+
+    public void setMessageUnreadCount(int count) {
+        runOnEdt(() -> {
+            if (messagesMenuButton != null) {
+                messagesMenuButton.setBadge(
+                        count <= 0 ? null : String.valueOf(Math.min(count, 99))
+                );
+            }
+        });
     }
 
     private AvatarView createCurrentUserAvatar(int size) {

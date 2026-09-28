@@ -5,11 +5,13 @@ import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.client.service.AuthService;
 import com.studyconnect.client.service.CommentService;
+import com.studyconnect.client.service.MessageService;
 import com.studyconnect.client.service.PostService;
 import com.studyconnect.client.view.auth.LoginFrame;
 import com.studyconnect.client.view.auth.RegisterFrame;
 import com.studyconnect.client.view.main.MainFrame;
 import com.studyconnect.client.view.component.CommentDialog;
+import com.studyconnect.client.view.message.MessagesPanel;
 import com.studyconnect.common.dto.*;
 import com.studyconnect.common.protocol.Response;
 
@@ -30,6 +32,7 @@ public class AuthController {
 
     private MainFrame mainFrame;
     private MainController mainController;
+    private MessageController messageController;
 
     public AuthController(
             AuthService authService,
@@ -337,6 +340,29 @@ public class AuthController {
                 tcpClient,
                 fileTransferClient
         );
+
+        UserDTO currentUser = CurrentUser.getUser();
+        if (currentUser == null || currentUser.getId() <= 0) {
+            throw new IllegalStateException("Không tìm thấy người dùng đang đăng nhập");
+        }
+        MessagesPanel messagesPanel = new MessagesPanel(currentUser.getId());
+        MessageService messageService = new MessageService(
+                tcpClient,
+                CurrentUser.getToken(),
+                currentUser
+        );
+        messageController = new MessageController(
+                mainFrame,
+                messagesPanel,
+                messageService,
+                tcpClient,
+                currentUser.getId()
+        );
+        messagesPanel.setUnreadCountListener(mainFrame::setMessageUnreadCount);
+        mainFrame.setMessagesPanel(messagesPanel);
+        mainFrame.setMessagesPageListener(messageController::loadConversations);
+        messageController.initializePeer();
+        messageController.loadConversations();
 
         mainFrame.setVisible(true);
 

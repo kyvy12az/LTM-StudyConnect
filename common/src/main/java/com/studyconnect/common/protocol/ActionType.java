@@ -15,10 +15,21 @@ public enum ActionType {
     GET_COMMENTS,
 
     GET_ONLINE_USERS,
-    SEND_MESSAGE,
-    GET_MESSAGES,
 
+    REGISTER_PEER,
+    UNREGISTER_PEER,
     REQUEST_PEER_INFO,
+
+    SYNC_MESSAGE,
+    SEND_MESSAGE,
+    GET_CONVERSATIONS,
+    GET_MESSAGE_HISTORY,
+    MARK_MESSAGE_READ,
+
+    // Backward-compatible request names used by older clients.
+    GET_MESSAGES,
+    MARK_MESSAGES_READ,
+
     REQUEST_CALL,
     ACCEPT_CALL,
     REJECT_CALL,
