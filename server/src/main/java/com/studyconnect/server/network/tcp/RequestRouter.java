@@ -17,6 +17,7 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 public class RequestRouter {
     private final AuthService authService;
@@ -25,9 +26,17 @@ public class RequestRouter {
     private final SessionManager sessionManager;
     private final ClientConnectionManager connectionManager;
     private final UserDAO userDAO;
+    private final Consumer<PostDTO> postCreatedListener;
 
     public RequestRouter(
             ClientConnectionManager connectionManager
+    ) {
+        this(connectionManager, null);
+    }
+
+    public RequestRouter(
+            ClientConnectionManager connectionManager,
+            Consumer<PostDTO> postCreatedListener
     ) {
         this.authService = new AuthService();
         this.postService = new PostService();
@@ -38,6 +47,7 @@ public class RequestRouter {
                 connectionManager,
                 "connectionManager"
         );
+        this.postCreatedListener = postCreatedListener;
         this.connectionManager.setPresenceChangedListener(this::pushOnlineUsers);
     }
 
@@ -234,6 +244,10 @@ public class RequestRouter {
         );
 
         connectionManager.broadcastAuthenticated(event, sourceConnection);
+
+        if (postCreatedListener != null) {
+            postCreatedListener.accept(createdPost);
+        }
 
         return Response.success(
                 request.getRequestId(),

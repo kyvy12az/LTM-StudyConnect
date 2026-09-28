@@ -30,6 +30,22 @@ public class PostDAO {
             INNER JOIN users u ON u.id = p.author_id
             """;
 
+    private final PostAttachmentDAO attachmentDAO = new PostAttachmentDAO();
+
+    public long countCreatedToday() throws SQLException {
+        String sql = """
+                SELECT COUNT(*)
+                FROM posts
+                WHERE status <> 'DELETED'
+                  AND DATE(created_at) = CURRENT_DATE
+                """;
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet result = statement.executeQuery()) {
+            return result.next() ? result.getLong(1) : 0L;
+        }
+    }
+
     public PostDTO create(long authorId, CreatePostDTO createPostDTO) throws SQLException {
         String sql = """
                 INSERT INTO posts (
@@ -158,13 +174,13 @@ public class PostDAO {
 
     private PostDTO mapPost(ResultSet result) throws SQLException {
         Timestamp createdAt = result.getTimestamp("created_at");
-        String avatarUrl = result.getString("author_avatar_url");
+//        String avatarUrl = result.getString("author_avatar_url");
 
-        return new PostDTO(
+        PostDTO post = new PostDTO(
                 result.getLong("id"),
                 result.getLong("author_id"),
                 result.getString("author_name"),
-                avatarUrl,
+                result.getString("author_avatar_url"),
                 result.getString("title"),
                 result.getString("content"),
                 result.getString("subject"),
@@ -172,5 +188,9 @@ public class PostDAO {
                 result.getInt("like_count"),
                 result.getInt("comment_count")
         );
+
+        post.setAttachments(attachmentDAO.findByPostId(post.getId()));
+
+        return post;
     }
 }

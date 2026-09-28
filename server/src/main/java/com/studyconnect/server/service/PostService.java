@@ -1,7 +1,9 @@
 package com.studyconnect.server.service;
 
 import com.studyconnect.common.dto.CreatePostDTO;
+import com.studyconnect.common.dto.PostAttachmentDTO;
 import com.studyconnect.common.dto.PostDTO;
+import com.studyconnect.server.model.dao.PostAttachmentDAO;
 import com.studyconnect.server.model.dao.PostDAO;
 
 import java.sql.SQLException;
@@ -17,16 +19,23 @@ public class PostService {
     private static final String DEFAULT_SUBJECT = "Khác";
 
     private final PostDAO postDAO;
+    private final PostAttachmentDAO attachmentDAO;
 
     public PostService() {
-        this(new PostDAO());
+        this(new PostDAO(), new PostAttachmentDAO());
     }
 
-    public PostService (PostDAO postDAO) {
+    public PostService (PostDAO postDAO, PostAttachmentDAO postAttachmentDAO) {
         if (postDAO == null) {
             throw new IllegalArgumentException("PostDAO không được null.");
         }
+        if (postAttachmentDAO == null) {
+            throw new IllegalArgumentException(
+                    "PostAttachmentDAO không được null."
+            );
+        }
         this.postDAO = postDAO;
+        this.attachmentDAO = postAttachmentDAO;
     }
 
     public PostDTO createPost(long authorId, CreatePostDTO createPostDTO) throws SQLException {
@@ -56,7 +65,32 @@ public class PostService {
         createPostDTO.setContent(content);
         createPostDTO.setSubject(subject);
 
-        return postDAO.create(authorId, createPostDTO);
+        PostDTO createdPost =
+                postDAO.create(
+                        authorId,
+                        createPostDTO
+                );
+
+        List<Long> attachmentIds =
+                createPostDTO.getAttachmentIds();
+
+        if (attachmentIds != null
+                && !attachmentIds.isEmpty()) {
+
+            attachmentDAO.attachToPost(
+                    createdPost.getId(),
+                    authorId,
+                    attachmentIds
+            );
+        }
+
+        createdPost.setAttachments(
+                attachmentDAO.findByPostId(
+                        createdPost.getId()
+                )
+        );
+
+        return createdPost;
     }
 
     public List<PostDTO> getAllPosts() throws SQLException {

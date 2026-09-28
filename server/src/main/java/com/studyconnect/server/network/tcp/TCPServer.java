@@ -10,6 +10,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.List;
+import com.studyconnect.common.dto.PostDTO;
 
 public class TCPServer {
     private final int port;
@@ -33,7 +35,7 @@ public class TCPServer {
         this.connectionManager =
                 new ClientConnectionManager();
         this.requestRouter =
-                new RequestRouter(connectionManager);
+                new RequestRouter(connectionManager, this::notifyPostCreated);
     }
 
     public TCPServer(int port) {
@@ -188,6 +190,12 @@ public class TCPServer {
         }
     }
 
+    private void notifyPostCreated(PostDTO post) {
+        if (eventListener != null) {
+            eventListener.onPostCreated(post);
+        }
+    }
+
     public boolean isRunning() {
         return running;
     }
@@ -198,5 +206,10 @@ public class TCPServer {
 
     public int getClientCount() {
         return connectionManager.getConnectionCount();
+    }
+
+    public List<ClientConnectionManager.ConnectionSnapshot>
+    getConnectionSnapshots() {
+        return connectionManager.getConnectionSnapshots();
     }
 }

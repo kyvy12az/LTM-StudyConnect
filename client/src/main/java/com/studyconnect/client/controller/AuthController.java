@@ -328,7 +328,7 @@ public class AuthController {
             loginFrame = null;
         }
 
-        mainFrame = new MainFrame();
+        mainFrame = new MainFrame(fileTransferClient);
 
         mainController = new MainController(
                 mainFrame,

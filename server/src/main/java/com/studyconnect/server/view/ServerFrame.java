@@ -1,169 +1,667 @@
 package com.studyconnect.server.view;
 
+import com.studyconnect.common.dto.PostDTO;
+import com.studyconnect.server.model.dto.AdminUserDTO;
+import com.studyconnect.server.model.dto.DashboardSnapshot;
+
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.ActionListener;
-import java.time.LocalTime;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
 
 public class ServerFrame extends JFrame {
-    private final JTextField portField;
+    public static final String DASHBOARD_PAGE = "dashboard";
+    public static final String USERS_PAGE = "users";
+    public static final String POSTS_PAGE = "posts";
 
-    private final JButton startButton;
-    private final JButton stopButton;
-    private final JButton clearLogButton;
-
-    private final JLabel statusLabel;
-    private final JLabel clientCountLabel;
-
-    private final JTextArea logArea;
-
-    private final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private final CardLayout pageLayout = new CardLayout();
+    private final JPanel pageDeck = new JPanel(pageLayout);
+    private final DashboardPanel dashboardPanel = new DashboardPanel();
+    private final UserManagementPanel userPanel = new UserManagementPanel();
+    private final PostManagementPanel postPanel = new PostManagementPanel();
+    private final JLabel pageTitle = new JLabel("Bảng điều khiển Server");
+    private final JLabel pageSubtitle = new JLabel("Theo dõi hoạt động server và quản lý hệ thống StudyConnect");
+    private final JLabel clockLabel = new JLabel();
+    private final List<JButton> menuButtons = new ArrayList<>();
+    private final List<Consumer<String>> pageListeners = new ArrayList<>();
+    private final Timer clockTimer;
+    private static final int SIDEBAR_WIDTH = 215;
 
     public ServerFrame() {
-        setTitle("StudyConnect - Server Management");
-        setSize(850, 560);
-        setMinimumSize(new Dimension(700, 450));
+        setTitle("StudyConnect Server");
+        setSize(1500, 900);
+        setMinimumSize(new Dimension(1280, 720));
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
-        portField = new JTextField("2006", 8);
-        startButton = new JButton("Khởi động Server");
-        stopButton = new JButton("Dừng Server");
-        clearLogButton = new JButton("Xóa Log");
-
-        statusLabel = new JLabel("Đã dừng", SwingConstants.CENTER);
-        clientCountLabel = new JLabel("0", SwingConstants.CENTER);
-
-        logArea = new JTextArea();
-        logArea.setEditable(false);
-        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 14));
+//        ServerTheme.installFrameIcon(this);
 
         initializeUI();
         setServerRunning(false);
+
+        clockTimer = new Timer(
+                1_000,
+                event -> updateClock()
+        );
+        clockTimer.setInitialDelay(0);
+        clockTimer.start();
     }
 
     private void initializeUI() {
-        setLayout(new BorderLayout(10, 10));
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBackground(ServerTheme.BACKGROUND);
 
-        JPanel headerPanel = createHeaderPanel();
-        JPanel informationPanel = createInformationPanel();
-        JScrollPane logScrollPane = createLogPanel();
+        root.add(
+                createSidebar(),
+                BorderLayout.WEST
+        );
 
-        JPanel northPanel = new JPanel(new BorderLayout(10, 10));
-        northPanel.add(headerPanel, BorderLayout.NORTH);
-        northPanel.add(informationPanel, BorderLayout.CENTER);
+        JPanel application = new JPanel(
+                new BorderLayout()
+        );
+        application.setBackground(
+                ServerTheme.BACKGROUND
+        );
 
-        add(northPanel, BorderLayout.NORTH);
-        add(logScrollPane, BorderLayout.CENTER);
+        application.add(
+                createHeader(),
+                BorderLayout.NORTH
+        );
 
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        bottomPanel.add(clearLogButton);
+        pageDeck.setOpaque(false);
+        pageDeck.setBorder(
+                new EmptyBorder(12, 14, 12, 14)
+        );
 
-        add(bottomPanel, BorderLayout.SOUTH);
+        pageDeck.add(
+                dashboardPanel,
+                DASHBOARD_PAGE
+        );
+        pageDeck.add(
+                userPanel,
+                USERS_PAGE
+        );
+        pageDeck.add(
+                postPanel,
+                POSTS_PAGE
+        );
 
-        ((JPanel) getContentPane()).setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        pageDeck.add(
+                placeholder(
+                        "Bình luận",
+                        "Trang quản lý bình luận sẽ được hoàn thiện sau."
+                ),
+                "comments"
+        );
+
+        pageDeck.add(
+                placeholder(
+                        "Tin nhắn",
+                        "Trang quản lý tin nhắn sẽ được hoàn thiện sau."
+                ),
+                "messages"
+        );
+
+        pageDeck.add(
+                placeholder(
+                        "Nhật ký",
+                        "Nhật ký trực tiếp hiện có tại trang Tổng quan."
+                ),
+                "audit"
+        );
+
+        application.add(
+                pageDeck,
+                BorderLayout.CENTER
+        );
+
+        root.add(
+                application,
+                BorderLayout.CENTER
+        );
+
+        setContentPane(root);
     }
 
-    private JPanel createHeaderPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        JLabel titleLabel = new JLabel("Quản lý Server");
-        titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 20));
+    private JComponent createSidebar() {
+        JPanel sidebar = new JPanel(
+                new BorderLayout()
+        );
 
-        JLabel portLabel = new JLabel("Cổng:");
+        /*
+         * Không dùng 260 vì Windows scale 125%
+         * sẽ hiển thị thành khoảng 325px.
+         */
+        sidebar.setPreferredSize(
+                new Dimension(
+                        SIDEBAR_WIDTH,
+                        0
+                )
+        );
 
-        panel.add(titleLabel);
-        panel.add(new JLabel("      "));
-        panel.add(portLabel);
-        panel.add(portField);
-        panel.add(startButton);
-        panel.add(stopButton);
+        sidebar.setMinimumSize(
+                new Dimension(
+                        SIDEBAR_WIDTH,
+                        0
+                )
+        );
 
-        return panel;
+        sidebar.setBackground(
+                new Color(238, 250, 246)
+        );
+
+        sidebar.setBorder(
+                BorderFactory.createMatteBorder(
+                        0,
+                        0,
+                        0,
+                        1,
+                        ServerTheme.BORDER
+                )
+        );
+
+        JPanel upper = new JPanel();
+        upper.setOpaque(false);
+        upper.setLayout(
+                new BoxLayout(
+                        upper,
+                        BoxLayout.Y_AXIS
+                )
+        );
+
+        upper.setBorder(
+                new EmptyBorder(
+                        20,
+                        12,
+                        0,
+                        12
+                )
+        );
+
+        JLabel logo = new JLabel(
+                "<html><div style='text-align:center'>"
+                        + "StudyConnect<br>"
+                        + "Server"
+                        + "</div></html>",
+                ServerTheme.imageIcon(
+                        "/images/logo-final.png",
+                        65,
+                        55
+                ),
+                SwingConstants.CENTER
+        );
+
+        logo.setFont(
+                ServerTheme.font(
+                        Font.BOLD,
+                        17
+                )
+        );
+        logo.setForeground(ServerTheme.NAVY);
+
+        logo.setHorizontalAlignment(
+                SwingConstants.CENTER
+        );
+        logo.setHorizontalTextPosition(
+                SwingConstants.CENTER
+        );
+        logo.setVerticalTextPosition(
+                SwingConstants.BOTTOM
+        );
+
+        logo.setIconTextGap(5);
+        logo.setAlignmentX(
+                Component.LEFT_ALIGNMENT
+        );
+
+        logo.setPreferredSize(
+                new Dimension(
+                        SIDEBAR_WIDTH - 24,
+                        112
+                )
+        );
+
+        logo.setMinimumSize(
+                new Dimension(
+                        SIDEBAR_WIDTH - 24,
+                        112
+                )
+        );
+
+        logo.setMaximumSize(
+                new Dimension(
+                        SIDEBAR_WIDTH - 24,
+                        112
+                )
+        );
+
+        upper.add(logo);
+        upper.add(
+                Box.createVerticalStrut(18)
+        );
+
+        addMenu(
+                upper,
+                "Tổng quan",
+                "home",
+                DASHBOARD_PAGE,
+                true
+        );
+
+        addMenu(
+                upper,
+                "Người dùng",
+                "user",
+                USERS_PAGE,
+                false
+        );
+
+        addMenu(
+                upper,
+                "Bài viết",
+                "file",
+                POSTS_PAGE,
+                false
+        );
+
+        addMenu(
+                upper,
+                "Bình luận",
+                "message",
+                "comments",
+                false
+        );
+
+        addMenu(
+                upper,
+                "Tin nhắn",
+                "message",
+                "messages",
+                false
+        );
+
+        addMenu(
+                upper,
+                "Nhật ký",
+                "audit",
+                "audit",
+                false
+        );
+
+        JLabel footer = new JLabel(
+                "v1.0.0  |  StudyConnect Server",
+                SwingConstants.CENTER
+        );
+
+        footer.setForeground(ServerTheme.MUTED);
+        footer.setFont(
+                ServerTheme.font(
+                        Font.PLAIN,
+                        9
+                )
+        );
+
+        footer.setBorder(
+                new EmptyBorder(
+                        0,
+                        4,
+                        12,
+                        4
+                )
+        );
+
+        sidebar.add(
+                upper,
+                BorderLayout.NORTH
+        );
+
+        sidebar.add(
+                footer,
+                BorderLayout.SOUTH
+        );
+
+        return sidebar;
     }
 
-    private JPanel createInformationPanel() {
-        JPanel panel = new JPanel(new GridLayout(1, 2, 10, 0));
+    private void addMenu(
+            JPanel parent,
+            String text,
+            String icon,
+            String page,
+            boolean selected
+    ) {
+        JButton button = new JButton(
+                text,
+                ServerTheme.icon(
+                        icon,
+                        19,
+                        selected
+                                ? Color.WHITE
+                                : ServerTheme.NAVY
+                )
+        );
 
-        JPanel statusPanel = createCard("Trạng thái Server", statusLabel);
-        JPanel clientPanel = createCard("Client đang kết nối", clientCountLabel);
+        button.setHorizontalAlignment(
+                SwingConstants.LEFT
+        );
+        button.setHorizontalTextPosition(
+                SwingConstants.RIGHT
+        );
+        button.setIconTextGap(12);
 
-        panel.add(statusPanel);
-        panel.add(clientPanel);
+        button.setFont(
+                ServerTheme.font(
+                        Font.BOLD,
+                        13
+                )
+        );
 
-        return panel;
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+
+        button.setBorder(
+                new EmptyBorder(
+                        12,
+                        15,
+                        12,
+                        10
+                )
+        );
+
+        button.setAlignmentX(
+                Component.LEFT_ALIGNMENT
+        );
+
+        int menuWidth = SIDEBAR_WIDTH - 24;
+
+        button.setPreferredSize(
+                new Dimension(menuWidth, 48)
+        );
+        button.setMinimumSize(
+                new Dimension(menuWidth, 48)
+        );
+        button.setMaximumSize(
+                new Dimension(menuWidth, 48)
+        );
+
+        button.setCursor(
+                Cursor.getPredefinedCursor(
+                        Cursor.HAND_CURSOR
+                )
+        );
+
+        button.putClientProperty(
+                "JButton.buttonType",
+                "roundRect"
+        );
+        button.putClientProperty("page", page);
+        button.putClientProperty(
+                "iconName",
+                icon
+        );
+
+        button.addActionListener(
+                event -> showPage(page, button)
+        );
+
+        menuButtons.add(button);
+        styleMenuButton(button, selected);
+
+        parent.add(button);
+        parent.add(
+                Box.createVerticalStrut(5)
+        );
     }
 
-    private JPanel createCard(String title, JLabel valueLabel) {
-        JPanel panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(new Color(210, 210, 210)), BorderFactory.createEmptyBorder(12, 12, 12, 12)));
+    private void styleMenuButton(
+            JButton button,
+            boolean selected
+    ) {
+        String iconName = String.valueOf(
+                button.getClientProperty(
+                        "iconName"
+                )
+        );
 
-        JLabel titleLabel = new JLabel(title, SwingConstants.CENTER);
-        titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        Color foreground = selected
+                ? Color.WHITE
+                : ServerTheme.NAVY;
 
-        valueLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+        button.setIcon(
+                ServerTheme.icon(
+                        iconName,
+                        20,
+                        foreground
+                )
+        );
 
-        panel.add(titleLabel, BorderLayout.NORTH);
-        panel.add(valueLabel, BorderLayout.CENTER);
+        button.setForeground(foreground);
 
-        return panel;
-    }
+        if (selected) {
+            button.setBackground(
+                    ServerTheme.TEAL
+            );
+            button.setOpaque(true);
+            button.setContentAreaFilled(true);
 
-    private JScrollPane createLogPanel() {
-        JScrollPane scrollPane = new JScrollPane(logArea);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("Nhật ký hoạt động"));
-
-        return scrollPane;
-    }
-
-    public String getPortText() {
-        return portField.getText().trim();
-    }
-
-    public void setServerRunning(boolean running) {
-        startButton.setEnabled(!running);
-        stopButton.setEnabled(running);
-        portField.setEnabled(!running);
-
-        if (running) {
-            statusLabel.setText("Đang chạy");
-            statusLabel.setForeground(new Color(25, 135, 84));
         } else {
-            statusLabel.setText("Đã dừng");
-            statusLabel.setForeground(new Color(190, 50, 50));
+            button.setBackground(
+                    new Color(0, 0, 0, 0)
+            );
+            button.setOpaque(false);
+            button.setContentAreaFilled(false);
         }
+
+        button.repaint();
     }
 
-    public void setClientCount(int count) {
-        clientCountLabel.setText(String.valueOf(count));
+    private void showPage(String page, JButton selectedButton) {
+        pageLayout.show(pageDeck, page);
+        for (JButton button : menuButtons) styleMenuButton(button, button == selectedButton);
+        switch (page) {
+            case USERS_PAGE -> setHeader("Quản lý người dùng", "Theo dõi tài khoản và trạng thái hoạt động");
+            case POSTS_PAGE -> setHeader("Quản lý bài viết", "Tra cứu nội dung và tệp đính kèm");
+            case "comments" -> setHeader("Quản lý bình luận", "Chức năng đang được hoàn thiện");
+            case "messages" -> setHeader("Quản lý tin nhắn", "Chức năng đang được hoàn thiện");
+            case "audit" -> setHeader("Nhật ký hệ thống", "Nhật ký trực tiếp hiện có tại trang Tổng quan");
+            default -> setHeader("Bảng điều khiển Server", "Theo dõi hoạt động server và quản lý hệ thống StudyConnect");
+        }
+        for (Consumer<String> listener : new ArrayList<>(pageListeners)) listener.accept(page);
     }
 
-    public void appendLog(String message) {
-        String currentTime = LocalTime.now().format(timeFormatter);
+    private JComponent createHeader() {
+        JPanel header = new JPanel(
+                new BorderLayout(20, 0)
+        );
 
-        logArea.append("[" + currentTime + "] " + message + System.lineSeparator());
-        logArea.setCaretPosition(logArea.getDocument().getLength());
+        header.setBackground(Color.WHITE);
+        header.setPreferredSize(
+                new Dimension(0, 96)
+        );
+
+        header.setBorder(
+                BorderFactory.createCompoundBorder(
+                        BorderFactory.createMatteBorder(
+                                0,
+                                0,
+                                1,
+                                0,
+                                ServerTheme.BORDER
+                        ),
+                        new EmptyBorder(
+                                16,
+                                28,
+                                16,
+                                28
+                        )
+                )
+        );
+
+        JPanel titles = new JPanel();
+        titles.setOpaque(false);
+        titles.setLayout(
+                new BoxLayout(
+                        titles,
+                        BoxLayout.Y_AXIS
+                )
+        );
+
+        pageTitle.setFont(
+                ServerTheme.font(
+                        Font.BOLD,
+                        25
+                )
+        );
+        pageTitle.setForeground(
+                ServerTheme.NAVY
+        );
+
+        pageSubtitle.setFont(
+                ServerTheme.font(
+                        Font.PLAIN,
+                        12
+                )
+        );
+        pageSubtitle.setForeground(
+                ServerTheme.MUTED
+        );
+
+        titles.add(pageTitle);
+        titles.add(
+                Box.createVerticalStrut(5)
+        );
+        titles.add(pageSubtitle);
+
+        JPanel admin = new JPanel();
+        admin.setOpaque(false);
+        admin.setLayout(
+                new BoxLayout(
+                        admin,
+                        BoxLayout.Y_AXIS
+                )
+        );
+
+        clockLabel.setFont(
+                ServerTheme.font(
+                        Font.PLAIN,
+                        12
+                )
+        );
+        clockLabel.setForeground(
+                ServerTheme.NAVY
+        );
+        clockLabel.setAlignmentX(
+                Component.RIGHT_ALIGNMENT
+        );
+
+        JLabel administrator = new JLabel(
+                "Quản trị viên  •  local"
+        );
+        administrator.setFont(
+                ServerTheme.font(
+                        Font.BOLD,
+                        12
+                )
+        );
+        administrator.setForeground(
+                ServerTheme.NAVY
+        );
+        administrator.setAlignmentX(
+                Component.RIGHT_ALIGNMENT
+        );
+
+        admin.add(clockLabel);
+        admin.add(
+                Box.createVerticalStrut(5)
+        );
+        admin.add(administrator);
+
+        header.add(
+                titles,
+                BorderLayout.WEST
+        );
+        header.add(
+                admin,
+                BorderLayout.EAST
+        );
+
+        return header;
     }
 
-    public void clearLog() {
-        logArea.setText("");
+    private JComponent placeholder(String title, String text) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(ServerTheme.BACKGROUND);
+        JLabel label = new JLabel("<html><div style='text-align:center'><h2>" + title + "</h2><p>" + text + "</p></div></html>");
+        label.setForeground(ServerTheme.MUTED);
+        panel.add(label);
+        return panel;
     }
 
-    public void addStartListener(
-            ActionListener listener
-    ) {
-        startButton.addActionListener(listener);
+    private void setHeader(String title, String subtitle) {
+        pageTitle.setText(title);
+        pageSubtitle.setText(subtitle);
     }
 
-    public void addStopListener(
-            ActionListener listener
-    ) {
-        stopButton.addActionListener(listener);
+    private void updateClock() {
+        Locale vietnamese =
+                new Locale("vi", "VN");
+
+        DateTimeFormatter formatter =
+                DateTimeFormatter.ofPattern(
+                        "EEEE, dd/MM/yyyy  •  HH:mm:ss",
+                        vietnamese
+                );
+
+        String text = LocalDateTime.now()
+                .format(formatter);
+
+        if (!text.isBlank()) {
+            text = Character.toUpperCase(
+                    text.charAt(0)
+            ) + text.substring(1);
+        }
+
+        clockLabel.setText(text);
     }
 
-    public void addClearLogListener(
-            ActionListener listener
-    ) {
-        clearLogButton.addActionListener(listener);
+    @Override
+    public void dispose() {
+        clockTimer.stop();
+        super.dispose();
+    }
+
+    public String getPortText() { return dashboardPanel.getPortText(); }
+    public void setServerRunning(boolean running) { dashboardPanel.setServerRunning(running); }
+    public void setClientCount(int count) { dashboardPanel.setClientCount(count); }
+    public void appendLog(String message) { dashboardPanel.appendLog(message); }
+    public void clearLog() { dashboardPanel.clearLog(); }
+    public void addStartListener(ActionListener listener) { dashboardPanel.addStartListener(listener); }
+    public void addStopListener(ActionListener listener) { dashboardPanel.addStopListener(listener); }
+    public void addClearLogListener(ActionListener listener) { dashboardPanel.addClearLogListener(listener); }
+    public void addPageChangeListener(Consumer<String> listener) { if (listener != null) pageListeners.add(listener); }
+    public void updateDashboard(DashboardSnapshot snapshot) { dashboardPanel.setSnapshot(snapshot); }
+    public void setUsers(List<AdminUserDTO> users) { userPanel.setUsers(users); }
+    public void setPosts(List<PostDTO> posts) { postPanel.setPosts(posts); }
+    public void addOrUpdatePost(PostDTO post) { postPanel.addOrUpdatePost(post); }
+    public AdminUserDTO getSelectedUser() { return userPanel.getSelectedUser(); }
+    public void setUserLoading(boolean loading) { userPanel.setLoading(loading); }
+    public void setPostLoading(boolean loading) { postPanel.setLoading(loading); }
+    public void showUserError(String message) { userPanel.showError(message); }
+    public void showPostError(String message) { postPanel.showError(message); }
+    public void addUserRefreshListener(ActionListener listener) { userPanel.addRefreshListener(listener); }
+    public void addUserDetailListener(ActionListener listener) { userPanel.addDetailListener(listener); }
+    public void addUserStatusListener(ActionListener listener) { userPanel.addToggleStatusListener(listener); }
+    public void addPostRefreshListener(ActionListener listener) { postPanel.addRefreshListener(listener); }
+    public void addPostDetailListener(ActionListener listener) { postPanel.addDetailListener(listener); }
+    public void showSelectedUserDetail() { userPanel.showSelectedUserDetail(this); }
+    public void showSelectedPostDetail() { postPanel.showSelectedPostDetail(this); }
+    public void showError(String message) {
+        JOptionPane.showMessageDialog(this, message, "Lỗi", JOptionPane.ERROR_MESSAGE);
     }
 }

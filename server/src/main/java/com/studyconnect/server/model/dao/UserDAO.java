@@ -2,6 +2,7 @@ package com.studyconnect.server.model.dao;
 
 import com.studyconnect.common.dto.RegisterDTO;
 import com.studyconnect.common.dto.UserDTO;
+import com.studyconnect.server.model.dto.AdminUserDTO;
 import com.studyconnect.server.model.database.DatabaseConnection;
 import com.studyconnect.server.model.entity.User;
 
@@ -9,6 +10,61 @@ import java.sql.*;
 import java.util.*;
 
 public class UserDAO {
+
+    public List<AdminUserDTO> findAllForAdmin() throws SQLException {
+        String sql = """
+                SELECT id, username, full_name, email, avatar_url,
+                       status, last_seen
+                FROM users
+                ORDER BY id DESC
+                """;
+        List<AdminUserDTO> users = new ArrayList<>();
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet result = statement.executeQuery()) {
+            while (result.next()) {
+                Timestamp lastSeen = result.getTimestamp("last_seen");
+                users.add(new AdminUserDTO(
+                        result.getLong("id"),
+                        result.getString("username"),
+                        result.getString("full_name"),
+                        result.getString("email"),
+                        result.getString("avatar_url"),
+                        result.getString("status"),
+                        false,
+                        lastSeen == null ? 0L : lastSeen.getTime()
+                ));
+            }
+        }
+        return users;
+    }
+
+    public long countAll() throws SQLException {
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT COUNT(*) FROM users"
+             ); ResultSet result = statement.executeQuery()) {
+            return result.next() ? result.getLong(1) : 0L;
+        }
+    }
+
+    public boolean updateStatus(long userId, String status)
+            throws SQLException {
+        if (userId <= 0) {
+            throw new IllegalArgumentException("ID người dùng không hợp lệ");
+        }
+        if (!"ACTIVE".equals(status) && !"LOCKED".equals(status)) {
+            throw new IllegalArgumentException("Trạng thái tài khoản không hợp lệ");
+        }
+        try (Connection connection = DatabaseConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "UPDATE users SET status = ? WHERE id = ?"
+             )) {
+            statement.setString(1, status);
+            statement.setLong(2, userId);
+            return statement.executeUpdate() == 1;
+        }
+    }
 
     public boolean usernameExists(String username) throws SQLException {
         String sql = "SELECT 1 FROM users WHERE username = ? LIMIT 1";

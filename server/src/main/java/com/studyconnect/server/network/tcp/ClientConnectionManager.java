@@ -6,6 +6,9 @@ import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public class ClientConnectionManager {
     private final Set<ClientHandler> connections =
@@ -149,7 +152,33 @@ public class ClientConnectionManager {
         return Set.copyOf(connectionsByUser.keySet());
     }
 
+    public List<ConnectionSnapshot> getConnectionSnapshots() {
+        List<ConnectionSnapshot> snapshots = new ArrayList<>();
+        for (ClientHandler handler : connections) {
+            if (!handler.isOpen()) continue;
+            Long userId = usersByConnection.get(handler);
+            snapshots.add(new ConnectionSnapshot(
+                    userId,
+                    handler.getRemoteHost(),
+                    handler.getRemotePort(),
+                    handler.getConnectedAt(),
+                    userId != null
+            ));
+        }
+        snapshots.sort(Comparator.comparingLong(ConnectionSnapshot::connectedAt));
+        return snapshots;
+    }
+
     public void setPresenceChangedListener(Runnable presenceChangedListener) {
         this.presenceChangedListener = presenceChangedListener;
+    }
+
+    public record ConnectionSnapshot(
+            Long userId,
+            String ipAddress,
+            int port,
+            long connectedAt,
+            boolean authenticated
+    ) {
     }
 }

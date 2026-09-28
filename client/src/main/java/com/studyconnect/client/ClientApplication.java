@@ -16,7 +16,7 @@ public class ClientApplication {
 
     private static final String SERVER_HOST = "192.168.1.22";
     private static final int SERVER_PORT = 2006;
-    private static final int FILE_SERVER_PORT = 2007;
+    private static final int FILE_SERVER_PORT = SERVER_PORT + 1;
 
     public static void main(String[] args) {
         configureLookAndFeel();

@@ -67,4 +67,97 @@ public class FileTransferClient {
             return JsonUtils.fromJson(responseJson, PostAttachmentDTO.class);
         }
     }
+
+    public byte[] download(
+            long attachmentId,
+            String authToken
+    ) throws IOException {
+        if (attachmentId <= 0) {
+            throw new IllegalArgumentException(
+                    "ID tệp đính kèm không hợp lệ"
+            );
+        }
+
+        if (authToken == null || authToken.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Bạn chưa đăng nhập"
+            );
+        }
+
+        try (
+                Socket socket = new Socket(host, port);
+
+                DataOutputStream output =
+                        new DataOutputStream(
+                                new BufferedOutputStream(
+                                        socket.getOutputStream()
+                                )
+                        );
+
+                DataInputStream input =
+                        new DataInputStream(
+                                new BufferedInputStream(
+                                        socket.getInputStream()
+                                )
+                        )
+        ) {
+            socket.setSoTimeout(30_000);
+
+            output.writeUTF(
+                    "DOWNLOAD_POST_ATTACHMENT"
+            );
+
+            output.writeUTF(authToken);
+            output.writeLong(attachmentId);
+            output.flush();
+
+            boolean success = input.readBoolean();
+            String message = input.readUTF();
+
+            if (!success) {
+                throw new IOException(message);
+            }
+
+            long fileSize = input.readLong();
+
+            long maximumSize = 50L * 1024 * 1024;
+
+            if (fileSize <= 0 || fileSize > maximumSize) {
+                throw new IOException(
+                        "Kích thước tệp tải xuống không hợp lệ: "
+                                + fileSize
+                );
+            }
+
+            ByteArrayOutputStream fileOutput =
+                    new ByteArrayOutputStream(
+                            (int) fileSize
+                    );
+
+            byte[] buffer = new byte[8192];
+            long remaining = fileSize;
+
+            while (remaining > 0) {
+                int read = input.read(
+                        buffer,
+                        0,
+                        (int) Math.min(
+                                buffer.length,
+                                remaining
+                        )
+                );
+
+                if (read < 0) {
+                    throw new EOFException(
+                            "Kết nối kết thúc khi chưa tải đủ tệp"
+                    );
+                }
+
+                fileOutput.write(buffer, 0, read);
+                remaining -= read;
+            }
+
+            return fileOutput.toByteArray();
+        }
+    }
 }

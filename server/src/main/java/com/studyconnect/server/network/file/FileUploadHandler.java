@@ -20,6 +20,9 @@ public class FileUploadHandler implements Runnable {
     private static final long MAX_DOCUMENT_SIZE =
             25L * 1024 * 1024;
 
+    private static final long MAX_DOWNLOAD_SIZE =
+            50L * 1024 * 1024;
+
     private static final Set<String> IMAGE_EXTENSIONS =
             Set.of(
                     "png",
@@ -84,6 +87,11 @@ public class FileUploadHandler implements Runnable {
         ) {
             try {
                 String operation = input.readUTF();
+
+                if ("DOWNLOAD_POST_ATTACHMENT".equals(operation)) {
+                    handleDownload(input, output);
+                    return;
+                }
 
                 if (!"UPLOAD_POST_ATTACHMENT".equals(operation)) {
                     throw new IllegalArgumentException(
@@ -375,6 +383,80 @@ public class FileUploadHandler implements Runnable {
                     "Đường dẫn lưu tệp không hợp lệ"
             );
         }
+    }
+
+    private void handleDownload(
+            DataInputStream input,
+            DataOutputStream output
+    ) throws IOException, SQLException {
+        String token = input.readUTF();
+        Long userId = sessionManager.getUserId(token);
+        if (userId == null) {
+            throw new SecurityException(
+                    "Phiên đăng nhập không hợp lệ hoặc đã hết hạn"
+            );
+        }
+
+        long attachmentId = input.readLong();
+        if (attachmentId <= 0) {
+            throw new IllegalArgumentException(
+                    "ID tệp đính kèm không hợp lệ"
+            );
+        }
+
+        String storagePath = attachmentDAO
+                .findActiveStoragePath(attachmentId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy tệp đính kèm"
+                ));
+
+        Path file;
+        try {
+            file = Paths.get(storagePath)
+                    .toAbsolutePath()
+                    .normalize();
+        } catch (InvalidPathException exception) {
+            throw new IOException(
+                    "Đường dẫn tệp đính kèm không hợp lệ",
+                    exception
+            );
+        }
+
+        ensureInsideUploadDirectory(file);
+        if (!Files.isRegularFile(file)) {
+            throw new IOException("Tệp đính kèm không còn tồn tại");
+        }
+
+        long fileSize = Files.size(file);
+        if (fileSize <= 0 || fileSize > MAX_DOWNLOAD_SIZE) {
+            throw new IOException(
+                    "Kích thước tệp tải xuống không hợp lệ"
+            );
+        }
+
+        output.writeBoolean(true);
+        output.writeUTF("Tải tệp thành công");
+        output.writeLong(fileSize);
+
+        try (InputStream fileInput = new BufferedInputStream(
+                Files.newInputStream(file)
+        )) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = fileInput.read(buffer)) >= 0) {
+                if (read > 0) {
+                    output.write(buffer, 0, read);
+                }
+            }
+        }
+        output.flush();
+
+        System.out.println(
+                "[FILE] User "
+                        + userId
+                        + " đã tải attachment "
+                        + attachmentId
+        );
     }
 
     private String getExtension(String fileName) {

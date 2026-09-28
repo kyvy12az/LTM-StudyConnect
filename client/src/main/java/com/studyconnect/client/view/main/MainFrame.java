@@ -1,8 +1,10 @@
 package com.studyconnect.client.view.main;
 
 import com.studyconnect.client.model.CurrentUser;
+import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.view.component.*;
 import com.studyconnect.common.dto.CreatePostDTO;
+import com.studyconnect.common.dto.PostAttachmentDTO;
 import com.studyconnect.common.dto.PostDTO;
 import com.studyconnect.common.dto.UserDTO;
 
@@ -32,6 +34,7 @@ public class MainFrame extends JFrame {
     private final CardLayout contentLayout = new CardLayout();
     private final JPanel contentDeck = new JPanel(contentLayout);
     private final List<SidebarMenuButton> menuButtons = new ArrayList<>();
+    private final FileTransferClient fileTransferClient;
     private final String displayName = resolveDisplayName();
 
     private final JTextField postTitleField = new JTextField();
@@ -75,7 +78,13 @@ public class MainFrame extends JFrame {
                     new Color(30, 126, 229)
             );
 
-    public MainFrame() {
+    public MainFrame(FileTransferClient fileTransferClient) {
+        if (fileTransferClient == null) {
+            throw new IllegalArgumentException(
+                    "FileTransferClient không được null"
+            );
+        }
+        this.fileTransferClient = fileTransferClient;
         setTitle("StudyConnect - Kết nối tri thức");
         setSize(1440, 900);
         setMinimumSize(new Dimension(1180, 720));
@@ -1400,6 +1409,9 @@ public class MainFrame extends JFrame {
                 ""
         );
 
+        List<PostAttachmentDTO> attachments =
+                post.getAttachments();
+
         PostCard card = new PostCard(
                 post.getId(),
                 authorName,
@@ -1408,9 +1420,9 @@ public class MainFrame extends JFrame {
                 subjectIcon(subject) + "  " + subject,
                 title,
                 content,
-                null, // chưa có dữ liệu tệp đính kèm
-                null,
-                null,
+                attachments,
+                fileTransferClient,
+                CurrentUser.getToken(),
                 Math.max(0, post.getLikeCount()),
                 Math.max(0, post.getCommentCount())
         );
@@ -1422,6 +1434,24 @@ public class MainFrame extends JFrame {
         });
 
         return card;
+    }
+
+    private String formatAttachmentSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+
+        if (bytes < 1024 * 1024) {
+            return String.format(
+                    "%.1f KB",
+                    bytes / 1024.0
+            );
+        }
+
+        return String.format(
+                "%.1f MB",
+                bytes / (1024.0 * 1024.0)
+        );
     }
 
     private String subjectIcon(String subject) {

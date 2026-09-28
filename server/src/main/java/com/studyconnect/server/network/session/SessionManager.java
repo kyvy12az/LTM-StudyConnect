@@ -3,6 +3,7 @@ package com.studyconnect.server.network.session;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 
 public final class SessionManager {
     private static final SessionManager INSTANCE = new SessionManager();
@@ -37,6 +38,10 @@ public final class SessionManager {
         if (token != null) {
             sessions.remove(token);
         }
+    }
+
+    public Set<Long> getActiveUserIds() {
+        return Set.copyOf(sessions.values());
     }
 
 }

@@ -23,6 +23,7 @@ public class ClientHandler implements Runnable {
     private final Consumer<String> logConsumer;
     private final Runnable disconnectCallback;
     private final Object writeLock = new Object();
+    private final long connectedAt = System.currentTimeMillis();
 
     private volatile DataInputStream input;
     private volatile DataOutputStream output;
@@ -240,6 +241,20 @@ public class ClientHandler implements Runnable {
         return String.valueOf(
                 socket.getRemoteSocketAddress()
         );
+    }
+
+    public String getRemoteHost() {
+        return socket.getInetAddress() == null
+                ? "--"
+                : socket.getInetAddress().getHostAddress();
+    }
+
+    public int getRemotePort() {
+        return socket.getPort();
+    }
+
+    public long getConnectedAt() {
+        return connectedAt;
     }
 
     public void close() {
