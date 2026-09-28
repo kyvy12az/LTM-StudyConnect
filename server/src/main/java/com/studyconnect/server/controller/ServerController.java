@@ -1,6 +1,7 @@
 package com.studyconnect.server.controller;
 
 import com.studyconnect.server.event.ServerEventListener;
+import com.studyconnect.server.network.file.FileTransferServer;
 import com.studyconnect.server.network.tcp.TCPServer;
 import com.studyconnect.server.view.ServerFrame;
 
@@ -13,6 +14,9 @@ public class ServerController implements ServerEventListener {
 
     private TCPServer server;
     private Thread serverThread;
+
+    private FileTransferServer fileTransferServer;
+    private Thread fileTransferThread;
 
     public ServerController(ServerFrame view) {
         this.view = view;
@@ -57,8 +61,14 @@ public class ServerController implements ServerEventListener {
         view.setServerRunning(true); // cập nhật giao diện để hiển thị server đang chạy
         view.setClientCount(0);
         view.appendLog("Đang khởi động server tại cổng " + port + "...");
-
         serverThread.start();
+
+        fileTransferServer = new FileTransferServer(port + 1);
+        fileTransferThread = new Thread(fileTransferThread::run, "studyconnect-file-server");
+        fileTransferThread.setDaemon(true);
+        fileTransferThread.start();
+
+        view.appendLog("File Transfer Server đang chạy tại cổng " + (port + 1) + "...");
     }
 
     private void stopServer() {
@@ -66,8 +76,13 @@ public class ServerController implements ServerEventListener {
             server.stop();
             server = null;
         }
-
         serverThread = null;
+
+        if (fileTransferServer != null) {
+            fileTransferServer.stop();
+            fileTransferServer = null;
+        }
+        fileTransferThread = null;
 
         view.setServerRunning(false);
         view.setClientCount(0);

@@ -1,6 +1,7 @@
 package com.studyconnect.client.controller;
 
 import com.studyconnect.client.model.CurrentUser;
+import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.client.service.AuthService;
 import com.studyconnect.client.service.CommentService;
@@ -22,6 +23,7 @@ public class AuthController {
     private final PostService postService;
     private final CommentService commentService;
     private final TCPClient tcpClient;
+    private final FileTransferClient fileTransferClient;
 
     private LoginFrame loginFrame;
     private RegisterFrame registerFrame;
@@ -33,7 +35,8 @@ public class AuthController {
             AuthService authService,
             PostService postService,
             CommentService commentService,
-            TCPClient tcpClient
+            TCPClient tcpClient,
+            FileTransferClient fileTransferClient
     ) {
         if (authService == null) {
             throw new IllegalArgumentException(
@@ -59,10 +62,15 @@ public class AuthController {
             );
         }
 
+        if (fileTransferClient == null) {
+            throw new IllegalArgumentException("FileTransferClient không được null");
+        }
+
         this.authService = authService;
         this.postService = postService;
         this.commentService = commentService;
         this.tcpClient = tcpClient;
+        this.fileTransferClient = fileTransferClient;
     }
 
     public void showLogin() {
@@ -326,7 +334,8 @@ public class AuthController {
                 mainFrame,
                 postService,
                 commentService,
-                tcpClient
+                tcpClient,
+                fileTransferClient
         );
 
         mainFrame.setVisible(true);
@@ -371,16 +380,19 @@ public class AuthController {
 
             mainFrame.setCreatePostLoading(true);
 
-            mainController.createPost(
+            mainController.createPostWithAttachments(
                     createPostDTO,
+                    mainFrame.getSelectedAttachments(),
+
                     createdPost -> {
-                        mainFrame.setCreatePostLoading(false);
                         mainFrame.clearPostInput();
                         mainFrame.addOrUpdatePost(createdPost);
-                        mainFrame.showSuccess(
-                                "Đăng bài thành công"
-                        );
-                    }
+                        mainFrame.showSuccess("Đăng bài thành công");
+                    },
+
+                    mainFrame::showError,
+
+                    () -> mainFrame.setCreatePostLoading(false)
             );
         });
 

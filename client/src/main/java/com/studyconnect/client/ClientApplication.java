@@ -2,6 +2,7 @@ package com.studyconnect.client;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.studyconnect.client.controller.AuthController;
+import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.client.service.AuthService;
 import com.studyconnect.client.service.CommentService;
@@ -13,8 +14,9 @@ import java.io.IOException;
 
 public class ClientApplication {
 
-    private static final String SERVER_HOST = "localhost";
+    private static final String SERVER_HOST = "192.168.1.22";
     private static final int SERVER_PORT = 2006;
+    private static final int FILE_SERVER_PORT = 2007;
 
     public static void main(String[] args) {
         configureLookAndFeel();
@@ -22,6 +24,11 @@ public class ClientApplication {
         TCPClient tcpClient = new TCPClient(
                 SERVER_HOST,
                 SERVER_PORT
+        );
+
+        FileTransferClient fileTransferClient = new FileTransferClient(
+                SERVER_HOST,
+                FILE_SERVER_PORT
         );
 
         try {
@@ -71,7 +78,8 @@ public class ClientApplication {
                             authService,
                             postService,
                             commentService,
-                            tcpClient
+                            tcpClient,
+                            fileTransferClient
                     );
 
             controller.showLogin();

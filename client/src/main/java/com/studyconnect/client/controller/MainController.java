@@ -1,5 +1,7 @@
 package com.studyconnect.client.controller;
 
+import com.studyconnect.client.model.CurrentUser;
+import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.network.tcp.TCPClient;
 import com.studyconnect.client.service.CommentService;
 import com.studyconnect.client.service.PostService;
@@ -16,6 +18,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -41,12 +44,14 @@ public class MainController {
             this::handleOnlineUsersEvent;
     private volatile CommentDialog activeCommentDialog;
     private volatile long activeCommentPostId = -1L;
+    private final FileTransferClient fileTransferClient;
 
     public MainController(
             MainFrame mainFrame,
             PostService postService,
             CommentService commentService,
-            TCPClient tcpClient
+            TCPClient tcpClient,
+            FileTransferClient fileTransferClient
     ) {
         this.mainFrame = Objects.requireNonNull(
                 mainFrame,
@@ -61,6 +66,7 @@ public class MainController {
                 "commentService"
         );
         this.tcpClient = Objects.requireNonNull(tcpClient, "tcpClient");
+        this.fileTransferClient = Objects.requireNonNull(fileTransferClient, "fileTransferClient");
 
         tcpClient.addServerEventListener(
                 ServerEventType.COMMENT_CREATED,
@@ -88,6 +94,77 @@ public class MainController {
                 close();
             }
         });
+    }
+
+    public void createPostWithAttachments(
+            CreatePostDTO post,
+            List<File> files,
+            Consumer<PostDTO> onSuccess,
+            Consumer<String> onError,
+            Runnable onFinished
+    ) {
+        new SwingWorker<Response<PostDTO>, Void>() {
+            @Override
+            protected Response<PostDTO> doInBackground()
+                    throws Exception {
+
+                List<Long> attachmentIds =
+                        new ArrayList<>();
+
+                if (files != null) {
+                    for (File file : files) {
+                        PostAttachmentDTO uploaded =
+                                fileTransferClient.upload(
+                                        file,
+                                        CurrentUser.getToken()
+                                );
+
+                        attachmentIds.add(
+                                uploaded.getId()
+                        );
+                    }
+                }
+
+                post.setAttachmentIds(attachmentIds);
+
+                synchronized (serviceLock) {
+                    return postService.createPost(post);
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    Response<PostDTO> response = get();
+
+                    if (response == null
+                            || !response.isSuccess()
+                            || response.getData() == null) {
+
+                        onError.accept(
+                                response == null
+                                        ? "Server không phản hồi."
+                                        : response.getMessage()
+                        );
+                        return;
+                    }
+
+                    onSuccess.accept(response.getData());
+
+                } catch (Exception exception) {
+                    Throwable cause = exception.getCause();
+
+                    onError.accept(
+                            cause != null
+                                    && cause.getMessage() != null
+                                    ? cause.getMessage()
+                                    : exception.getMessage()
+                    );
+                } finally {
+                    onFinished.run();
+                }
+            }
+        }.execute();
     }
 
     public void setActiveCommentDialog(long postId, CommentDialog dialog) {

@@ -9,8 +9,10 @@ import com.studyconnect.common.dto.UserDTO;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.time.Duration;
@@ -54,6 +56,24 @@ public class MainFrame extends JFrame {
     private String selectedSubject;
 
     private Consumer<PostDTO> commentListener;
+
+    // file
+    private static final int MAX_ATTACHMENTS = 5;
+    private final List<File> selectedAttachments = new ArrayList<>();
+    private final JPanel attachmentPreviewPanel  = new JPanel();
+    private final JButton selectImageButton =
+            composerAction(
+                    MainTheme.IconType.IMAGE,
+                    "Ảnh",
+                    MainTheme.TEAL
+            );
+
+    private final JButton selectDocumentButton =
+            composerAction(
+                    MainTheme.IconType.DOCUMENT,
+                    "Tài liệu",
+                    new Color(30, 126, 229)
+            );
 
     public MainFrame() {
         setTitle("StudyConnect - Kết nối tri thức");
@@ -524,7 +544,7 @@ public class MainFrame extends JFrame {
         composer.setLayout(new BorderLayout(13, 10));
         composer.setBorder(new EmptyBorder(14, 16, 14, 18));
         composer.setMaximumSize(
-                new Dimension(Integer.MAX_VALUE, 245)
+                new Dimension(Integer.MAX_VALUE, 340)
         );
         composer.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -619,6 +639,18 @@ public class MainFrame extends JFrame {
         fields.add(Box.createVerticalStrut(8));
         fields.add(contentScroll);
 
+        attachmentPreviewPanel.setOpaque(false);
+        attachmentPreviewPanel.setLayout(
+                new BoxLayout(
+                        attachmentPreviewPanel,
+                        BoxLayout.Y_AXIS
+                )
+        );
+        attachmentPreviewPanel.setVisible(false);
+
+        fields.add(Box.createVerticalStrut(8));
+        fields.add(attachmentPreviewPanel);
+
         postTitleField.addActionListener(
                 event -> postContentArea.requestFocusInWindow()
         );
@@ -650,21 +682,32 @@ public class MainFrame extends JFrame {
         );
         types.setOpaque(false);
 
-        types.add(
-                composerAction(
-                        MainTheme.IconType.IMAGE,
-                        "Ảnh",
-                        MainTheme.TEAL
-                )
+//        types.add(
+//                composerAction(
+//                        MainTheme.IconType.IMAGE,
+//                        "Ảnh",
+//                        MainTheme.TEAL
+//                )
+//        );
+//
+//        types.add(
+//                composerAction(
+//                        MainTheme.IconType.DOCUMENT,
+//                        "Tài liệu",
+//                        new Color(30, 126, 229)
+//                )
+//        );
+
+        selectImageButton.addActionListener(
+                event -> chooseAttachments(true)
         );
 
-        types.add(
-                composerAction(
-                        MainTheme.IconType.DOCUMENT,
-                        "Tài liệu",
-                        new Color(30, 126, 229)
-                )
+        selectDocumentButton.addActionListener(
+                event -> chooseAttachments(false)
         );
+
+        types.add(selectImageButton);
+        types.add(selectDocumentButton);
 
         types.add(
                 composerAction(
@@ -699,6 +742,139 @@ public class MainFrame extends JFrame {
         composer.add(actions, BorderLayout.SOUTH);
 
         return composer;
+    }
+
+    private void chooseAttachments(boolean imagesOnly) {
+        JFileChooser chooser = new JFileChooser();
+
+        chooser.setMultiSelectionEnabled(true);
+        chooser.setAcceptAllFileFilterUsed(false);
+
+        if (imagesOnly) {
+            chooser.setDialogTitle("Chọn hình ảnh");
+            chooser.setFileFilter(
+                    new FileNameExtensionFilter(
+                            "Hình ảnh (*.png, *.jpg, *.jpeg, *.gif, *.webp)",
+                            "png",
+                            "jpg",
+                            "jpeg",
+                            "gif",
+                            "webp"
+                    )
+            );
+        } else {
+            chooser.setDialogTitle("Chọn tài liệu");
+            chooser.setFileFilter(
+                    new FileNameExtensionFilter(
+                            "Tài liệu",
+                            "pdf",
+                            "doc",
+                            "docx",
+                            "xls",
+                            "xlsx",
+                            "ppt",
+                            "pptx",
+                            "txt"
+                    )
+            );
+        }
+
+        if (chooser.showOpenDialog(this)
+                != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        for (File file : chooser.getSelectedFiles()) {
+            if (selectedAttachments.size()
+                    >= MAX_ATTACHMENTS) {
+                showError(
+                        "Mỗi bài viết chỉ được đính kèm tối đa "
+                                + MAX_ATTACHMENTS
+                                + " tệp."
+                );
+                break;
+            }
+
+            if (!selectedAttachments.contains(file)) {
+                selectedAttachments.add(file);
+            }
+        }
+
+        refreshAttachmentPreview();
+    }
+
+    private void refreshAttachmentPreview() {
+        attachmentPreviewPanel.removeAll();
+
+        for (File file :
+                new ArrayList<>(selectedAttachments)) {
+
+            JPanel row = new JPanel(
+                    new BorderLayout(8, 0)
+            );
+            row.setOpaque(false);
+            row.setBorder(
+                    new EmptyBorder(4, 8, 4, 8)
+            );
+
+            JLabel nameLabel = new JLabel(
+                    file.getName()
+                            + "  •  "
+                            + formatFileSize(file.length())
+            );
+
+            nameLabel.setFont(
+                    MainTheme.font(Font.PLAIN, 12)
+            );
+            nameLabel.setForeground(MainTheme.TEXT);
+
+            JButton removeButton = new JButton("×");
+            removeButton.setToolTipText("Xóa tệp");
+            removeButton.setContentAreaFilled(false);
+            removeButton.setFocusPainted(false);
+            removeButton.setBorder(
+                    new EmptyBorder(2, 8, 2, 8)
+            );
+
+            removeButton.addActionListener(event -> {
+                selectedAttachments.remove(file);
+                refreshAttachmentPreview();
+            });
+
+            row.add(nameLabel, BorderLayout.CENTER);
+            row.add(removeButton, BorderLayout.EAST);
+
+            attachmentPreviewPanel.add(row);
+        }
+
+        attachmentPreviewPanel.setVisible(
+                !selectedAttachments.isEmpty()
+        );
+
+        attachmentPreviewPanel.revalidate();
+        attachmentPreviewPanel.repaint();
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+
+        if (bytes < 1024 * 1024) {
+            return String.format(
+                    "%.1f KB",
+                    bytes / 1024.0
+            );
+        }
+
+        return String.format(
+                "%.1f MB",
+                bytes / (1024.0 * 1024.0)
+        );
+    }
+
+    public List<File> getSelectedAttachments() {
+        return new ArrayList<>(selectedAttachments);
     }
 
     private JButton composerAction(MainTheme.IconType icon, String text, Color color) {
@@ -1092,6 +1268,10 @@ public class MainFrame extends JFrame {
         runOnEdt(() -> {
             postTitleField.setText("");
             postContentArea.setText("");
+
+            selectedAttachments.clear();
+            refreshAttachmentPreview();
+
             postTitleField.requestFocusInWindow();
         });
     }
@@ -1101,6 +1281,8 @@ public class MainFrame extends JFrame {
             createPostButton.setEnabled(!loading);
             postTitleField.setEnabled(!loading);
             postContentArea.setEnabled(!loading);
+            selectImageButton.setEnabled(!loading);
+            selectDocumentButton.setEnabled(!loading);
             createPostButton.setText(
                     loading ? "Đang đăng..." : "Tạo bài viết"
             );

@@ -1,6 +1,8 @@
 package com.studyconnect.common.dto;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PostDTO implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -15,6 +17,7 @@ public class PostDTO implements Serializable {
     private long createdAt;
     private int likeCount;
     private int commentCount;
+    private List<PostAttachmentDTO> attachments = new ArrayList<>();
 
     public PostDTO() {
     }
@@ -110,6 +113,18 @@ public class PostDTO implements Serializable {
 
     public void setAuthorAvatarUrl(String authorAvatarUrl) {
         this.authorAvatarUrl = authorAvatarUrl;
+    }
+
+    public List<PostAttachmentDTO> getAttachments() {
+        return attachments;
+    }
+
+    public void setAttachments(
+            List<PostAttachmentDTO> attachments
+    ) {
+        this.attachments = attachments == null
+                ? new ArrayList<>()
+                : attachments;
     }
 
     @Override

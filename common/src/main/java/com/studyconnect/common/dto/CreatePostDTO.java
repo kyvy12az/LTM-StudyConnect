@@ -1,6 +1,8 @@
 package com.studyconnect.common.dto;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 public class CreatePostDTO implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -8,6 +10,7 @@ public class CreatePostDTO implements Serializable {
     private String title;
     private String content;
     private String subject;
+    private List<Long> attachmentIds = new ArrayList<>();
 
     public CreatePostDTO() {
     }
@@ -40,6 +43,16 @@ public class CreatePostDTO implements Serializable {
 
     public void setSubject(String subject) {
         this.subject = subject;
+    }
+
+    public List<Long> getAttachmentIds() {
+        return attachmentIds;
+    }
+
+    public void setAttachmentIds(List<Long> attachmentIds) {
+        this.attachmentIds = attachmentIds == null
+                ? new ArrayList<>()
+                : attachmentIds;
     }
 
     @Override
