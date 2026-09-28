@@ -152,3 +152,49 @@ CREATE TABLE IF NOT EXISTS messages (
     ),
     INDEX idx_messages_sent_at (sent_at)
 ) ENGINE = InnoDB;
+
+-- ==============================
+-- BẢNG ATTACHMENT CHO BÀI ĐĂNG
+-- ==============================
+
+CREATE TABLE IF NOT EXISTS post_attachments (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    post_id BIGINT UNSIGNED NULL,
+    uploader_id BIGINT UNSIGNED NOT NULL,
+
+    original_name VARCHAR(255) NOT NULL,
+    stored_name VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+
+    attachment_type ENUM(
+        'IMAGE',
+        'DOCUMENT'
+    ) NOT NULL,
+
+    size_bytes BIGINT UNSIGNED NOT NULL,
+    storage_path VARCHAR(500) NOT NULL,
+
+    status ENUM(
+        'TEMPORARY',
+        'ACTIVE',
+        'DELETED'
+    ) NOT NULL DEFAULT 'TEMPORARY',
+
+    created_at DATETIME NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_post_attachments_post
+        FOREIGN KEY (post_id)
+        REFERENCES posts(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_post_attachments_uploader
+        FOREIGN KEY (uploader_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    INDEX idx_post_attachments_post(post_id),
+    INDEX idx_post_attachments_uploader(uploader_id),
+    INDEX idx_post_attachments_status(status)
+) ENGINE = InnoDB;
