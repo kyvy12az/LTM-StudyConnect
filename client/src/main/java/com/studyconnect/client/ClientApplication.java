@@ -14,20 +14,25 @@ import java.io.IOException;
 
 public class ClientApplication {
 
-    private static final String SERVER_HOST = "192.168.1.22";
+    private static final String DEFAULT_SERVER_HOST = "192.168.1.22";
     private static final int SERVER_PORT = 2006;
     private static final int FILE_SERVER_PORT = SERVER_PORT + 1;
 
     public static void main(String[] args) {
+        System.setProperty("awt.useSystemAAFontSettings", "on");
+        System.setProperty("swing.aatext", "true");
+
+        String serverHost = (args.length > 0) ? args[0] : DEFAULT_SERVER_HOST;
+
         configureLookAndFeel();
 
         TCPClient tcpClient = new TCPClient(
-                SERVER_HOST,
+                serverHost,
                 SERVER_PORT
         );
 
         FileTransferClient fileTransferClient = new FileTransferClient(
-                SERVER_HOST,
+                serverHost,
                 FILE_SERVER_PORT
         );
 
@@ -38,7 +43,7 @@ public class ClientApplication {
             JOptionPane.showMessageDialog(
                     null,
                     "Không thể kết nối đến Server "
-                            + SERVER_HOST
+                            + serverHost
                             + ":"
                             + SERVER_PORT
                             + "\n"
@@ -57,30 +62,18 @@ public class ClientApplication {
                 )
         );
 
-        AuthService authService =
-                new AuthService(tcpClient);
-
-        PostService postService =
-                new PostService(
-                        tcpClient,
-                        null
-                );
-
-        CommentService commentService =
-                new CommentService(
-                        tcpClient,
-                        null
-                );
+        AuthService authService = new AuthService(tcpClient);
+        PostService postService = new PostService(tcpClient, null);
+        CommentService commentService = new CommentService(tcpClient, null);
 
         SwingUtilities.invokeLater(() -> {
-            AuthController controller =
-                    new AuthController(
-                            authService,
-                            postService,
-                            commentService,
-                            tcpClient,
-                            fileTransferClient
-                    );
+            AuthController controller = new AuthController(
+                    authService,
+                    postService,
+                    commentService,
+                    tcpClient,
+                    fileTransferClient
+            );
 
             controller.showLogin();
         });
@@ -89,14 +82,8 @@ public class ClientApplication {
     private static void configureLookAndFeel() {
         FlatLightLaf.setup();
 
-        UIManager.put(
-                "defaultFont",
-                new Font(
-                        "Segoe UI",
-                        Font.PLAIN,
-                        14
-                )
-        );
+        // Tự động chọn font hiển thị tối ưu theo Hệ điều hành
+        UIManager.put("defaultFont", getSystemOptimalFont());
 
         UIManager.put("Component.arc", 14);
         UIManager.put("Button.arc", 14);
@@ -109,21 +96,21 @@ public class ClientApplication {
         UIManager.put("ScrollBar.thumbArc", 999);
         UIManager.put("ScrollBar.trackArc", 999);
 
-        UIManager.put(
-                "ScrollBar.showButtons",
-                false
-        );
-
-        UIManager.put(
-                "Component.arrowType",
-                "triangle"
-        );
-
-        UIManager.put(
-                "TextComponent.selectAllOnFocusPolicy",
-                "once"
-        );
-
+        UIManager.put("ScrollBar.showButtons", false);
+        UIManager.put("Component.arrowType", "triangle");
+        UIManager.put("TextComponent.selectAllOnFocusPolicy", "once");
         UIManager.put("ToolTip.arc", 10);
+    }
+
+    private static Font getSystemOptimalFont() {
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        String[] fontNames = ge.getAvailableFontFamilyNames();
+
+        for (String fontName : fontNames) {
+            if ("Segoe UI".equalsIgnoreCase(fontName)) {
+                return new Font("Segoe UI", Font.PLAIN, 14);
+            }
+        }
+        return new Font(Font.SANS_SERIF, Font.PLAIN, 14);
     }
 }
