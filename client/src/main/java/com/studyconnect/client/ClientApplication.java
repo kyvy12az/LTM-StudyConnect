@@ -14,7 +14,7 @@ import java.io.IOException;
 
 public class ClientApplication {
 
-    private static final String DEFAULT_SERVER_HOST = "192.168.1.22";
+    private static final String DEFAULT_SERVER_HOST = "10.60.15.4";
     private static final int SERVER_PORT = 2006;
     private static final int FILE_SERVER_PORT = SERVER_PORT + 1;
 
