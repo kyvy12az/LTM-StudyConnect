@@ -4,6 +4,7 @@ import com.studyconnect.client.model.CurrentUser;
 import com.studyconnect.client.network.file.FileTransferClient;
 import com.studyconnect.client.view.component.*;
 import com.studyconnect.client.view.message.MessagesPanel;
+import com.studyconnect.client.view.profile.ProfilePanel;
 import com.studyconnect.common.dto.CreatePostDTO;
 import com.studyconnect.common.dto.PostAttachmentDTO;
 import com.studyconnect.common.dto.PostDTO;
@@ -37,6 +38,7 @@ public class MainFrame extends JFrame {
     private final JPanel contentDeck = new JPanel(contentLayout);
     private final List<SidebarMenuButton> menuButtons = new ArrayList<>();
     private final FileTransferClient fileTransferClient;
+    private final ProfilePanel profilePanel;
     private final String displayName = resolveDisplayName();
 
     private final JTextField postTitleField = new JTextField();
@@ -91,6 +93,7 @@ public class MainFrame extends JFrame {
             );
         }
         this.fileTransferClient = fileTransferClient;
+        this.profilePanel = new ProfilePanel(fileTransferClient);
         setTitle("StudyConnect - Kết nối tri thức");
         setSize(1440, 900);
         setMinimumSize(new Dimension(1180, 720));
@@ -118,7 +121,16 @@ public class MainFrame extends JFrame {
         contentDeck.add(messagesHost, "messages");
         contentDeck.add(createPlaceholder("Nhóm học tập", "Cùng tạo và tham gia các nhóm học tập.", MainTheme.IconType.GROUP), "groups");
         contentDeck.add(createPlaceholder("Tài liệu", "Kho tài liệu học tập của bạn.", MainTheme.IconType.DOCUMENT), "documents");
-        contentDeck.add(createPlaceholder("Hồ sơ", "Thông tin cá nhân và hoạt động của bạn.", MainTheme.IconType.USER), "profile");
+        contentDeck.add(profilePanel, "profile");
+        profilePanel.setOpenFeedAction(() -> {
+            if (!menuButtons.isEmpty()) {
+                SidebarMenuButton feedButton = menuButtons.get(0);
+                for (SidebarMenuButton item : menuButtons) {
+                    item.setActive(item == feedButton);
+                }
+            }
+            contentLayout.show(contentDeck, "feed");
+        });
         application.add(contentDeck, BorderLayout.CENTER);
         root.add(application, BorderLayout.CENTER);
         setContentPane(root);
@@ -1208,6 +1220,7 @@ public class MainFrame extends JFrame {
         if (post == null || post.getId() <= 0) return;
 
         runOnEdt(() -> {
+            profilePanel.addOrUpdatePost(post);
             if (!isPostVisibleInSelectedSubject(post)) return;
             if (postCardsById.containsKey(post.getId())) return;
             
@@ -1362,6 +1375,7 @@ public class MainFrame extends JFrame {
                 : new ArrayList<>(posts);
 
         runOnEdt(() -> {
+            profilePanel.setPosts(safePosts);
             postCardsById.clear();
             postsContainer.removeAll();
 
@@ -1562,12 +1576,14 @@ public class MainFrame extends JFrame {
             Consumer<PostDTO> commentListener
     ) {
         this.commentListener = commentListener;
+        profilePanel.setCommentListener(commentListener);
     }
 
     public void setLikeListener(
             BiConsumer<Long, Boolean> likeListener
     ) {
         this.likeListener = likeListener;
+        profilePanel.setLikeListener(likeListener);
     }
 
     public void updatePostLikeState(
@@ -1576,6 +1592,11 @@ public class MainFrame extends JFrame {
             Boolean likedByCurrentUser
     ) {
         runOnEdt(() -> {
+            profilePanel.updatePostLikeState(
+                    postId,
+                    likeCount,
+                    likedByCurrentUser
+            );
             PostCard card = postCardsById.get(postId);
             if (card == null) {
                 return;
@@ -1591,6 +1612,7 @@ public class MainFrame extends JFrame {
 
     public void setPostLikeLoading(long postId, boolean loading) {
         runOnEdt(() -> {
+            profilePanel.setPostLikeLoading(postId, loading);
             PostCard card = postCardsById.get(postId);
             if (card != null) {
                 card.setLikeLoading(loading);
@@ -1603,6 +1625,7 @@ public class MainFrame extends JFrame {
             int commentCount
     ) {
         runOnEdt(() -> {
+            profilePanel.updatePostCommentCount(postId, commentCount);
             PostCard card = postCardsById.get(postId);
             if (card != null) {
                 card.setCommentCount(commentCount);
